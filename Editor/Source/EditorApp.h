@@ -68,7 +68,6 @@ private:
     void DrawGameView();           // Viewports.cpp
     void DrawStats();              // Viewports.cpp
     void DrawSceneToolbar();       // Viewports.cpp
-    void DrawGameViewUIOverlay(ImVec2 origin, ImVec2 size, bool hovered); // Viewports.cpp
     void DrawRectTransform(Entity& entity, bool& changed);                  // InspectorPanel.cpp
     bool DrawSpriteField(std::string& sprite);                              // InspectorPanel.cpp
     void DrawUIPanel();                                                     // UIPanel.cpp
@@ -193,7 +192,6 @@ private:
     bool m_UndoPending = false;
 
     // Game view UI editing
-    bool m_DraggingUI = false;
 
     // UI panel
     std::unique_ptr<RenderTarget> m_UITarget;

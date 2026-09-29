@@ -220,10 +220,10 @@ void EditorApp::DrawGameView()
     if (m_Scene.MainCamera()) {
         ImVec2 origin = ImGui::GetCursorScreenPos();
         ImGui::Image(ImTextureRef(m_ImGui->Texture(*m_GameTarget)), size);
-        bool hovered = ImGui::IsItemHovered();
 
-        // Drop an image from the Project panel to create a UI Image at that spot.
-        if (ImGui::BeginDragDropTarget()) {
+        // The Game view only shows the game, as in Unity: UI is edited in the UI
+        // panel. Dropping an image here outside Play Mode still creates a UI Image.
+        if (!IsPlaying() && ImGui::BeginDragDropTarget()) {
             if (const ImGuiPayload* payload = ImGui::AcceptDragDropPayload("IE_ASSET")) {
                 std::string asset(static_cast<const char*>(payload->Data));
                 if (ImageIO::IsImageFile(Platform::Utf8ToPath(asset))) {
@@ -236,7 +236,6 @@ void EditorApp::DrawGameView()
             }
             ImGui::EndDragDropTarget();
         }
-        DrawGameViewUIOverlay(origin, size, hovered);
     } else {
         const char* text = "No cameras rendering. Add a Camera component to an object.";
         ImVec2 textSize = ImGui::CalcTextSize(text);
@@ -244,44 +243,6 @@ void EditorApp::DrawGameView()
         ImGui::TextDisabled("%s", text);
     }
     ImGui::End();
-}
-
-void EditorApp::DrawGameViewUIOverlay(ImVec2 origin, ImVec2 size, bool hovered)
-{
-    UILayoutResult layout;
-    layout.Build(m_Scene, glm::vec2(size.x, size.y));
-    ImVec2 mouse = ImGui::GetMousePos();
-    glm::vec2 local(mouse.x - origin.x, mouse.y - origin.y);
-
-    // Click selects the top-most UI element under the cursor.
-    if (hovered && ImGui::IsMouseClicked(ImGuiMouseButton_Left)) {
-        const auto& order = layout.DrawOrder();
-        for (auto it = order.rbegin(); it != order.rend(); ++it) {
-            if (layout.ToScreen(*layout.Find((*it)->id)).Contains(local)) {
-                Select((*it)->id);
-                m_DraggingUI = true;
-                break;
-            }
-        }
-    }
-    if (!ImGui::IsMouseDown(ImGuiMouseButton_Left))
-        m_DraggingUI = false;
-
-    Entity* selected = Selected();
-    const CanvasRect* rect = selected && selected->rectTransform ? layout.Find(selected->id) : nullptr;
-    if (!rect)
-        return;
-
-    if (m_DraggingUI) {
-        ImVec2 delta = ImGui::GetIO().MouseDelta;
-        if (delta.x != 0.0f || delta.y != 0.0f) {
-            selected->rectTransform->position += glm::vec2(delta.x, -delta.y) / layout.Scale();
-            MarkDirty();
-        }
-    }
-    ScreenRect r = layout.ToScreen(*rect);
-    ImGui::GetWindowDrawList()->AddRect({origin.x + r.min.x, origin.y + r.min.y}, {origin.x + r.max.x, origin.y + r.max.y},
-                                        IM_COL32(255, 140, 25, 255), 0.0f, 1.5f);
 }
 
 } // namespace ie
