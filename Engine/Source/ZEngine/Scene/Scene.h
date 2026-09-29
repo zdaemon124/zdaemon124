@@ -20,7 +20,10 @@ struct Entity {
     EntityID id = kInvalidEntity;
     std::string name;
     bool active = true;
-    Transform transform;
+    EntityID parent = kInvalidEntity; // 3D parent: `transform` is relative to it
+    std::string prefab;               // prefab asset this entity is the root instance of ("" = none)
+    Transform transform;              // local transform
+    glm::mat4 world{1.0f};            // world matrix (runtime, see Scene::UpdateWorldTransforms)
 
     std::optional<MeshRendererComponent> meshRenderer;
     std::optional<ColliderComponent> collider;
@@ -51,7 +54,9 @@ public:
     Entity& CreateEntity(const std::string& name, EntityID id = kInvalidEntity);
     // GameObject.CreatePrimitive: mesh renderer + matching collider.
     Entity& CreatePrimitive(PrimitiveType type, const std::string& name = {});
+    // Copies an entity with all its children (3D and UI).
     Entity& Duplicate(EntityID id);
+    // Destroys an entity with all its children.
     void DestroyEntity(EntityID id);
     void Clear();
 
@@ -61,6 +66,20 @@ public:
     int IndexOf(EntityID id) const;
     // True if `ancestor` is `id` or one of its UI parents.
     bool IsUIDescendant(EntityID id, EntityID ancestor) const;
+
+    // ---- 3D hierarchy
+    // True if `ancestor` is `id` or one of its 3D parents.
+    bool IsDescendant(EntityID id, EntityID ancestor) const;
+    std::vector<EntityID> Children(EntityID id) const;
+    // All entities in the subtree of `root` (root first), following both 3D and UI parents.
+    std::vector<EntityID> Subtree(EntityID root) const;
+    // Re-parents keeping the world transform when `keepWorld` is set. Returns false if it would create a cycle.
+    bool SetParent(EntityID child, EntityID parent, bool keepWorld = true);
+    // Recomputes Entity::world for every entity (call once per frame before rendering / physics).
+    void UpdateWorldTransforms();
+    glm::mat4 ParentWorld(const Entity& entity) const;
+    // Sets the local transform so that the entity ends up at the given world matrix.
+    void SetWorldMatrix(Entity& entity, const glm::mat4& world);
     void Move(EntityID id, int newIndex);
 
     // First active entity with a light / camera component.

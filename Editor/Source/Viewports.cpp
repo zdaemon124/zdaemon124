@@ -56,6 +56,28 @@ void EditorApp::DrawSceneView()
     m_SceneViewSize = ToExtent(size);
     ImGui::Image(ImTextureRef(m_ImGui->Texture(*m_SceneTarget)), size);
     m_SceneViewHovered = ImGui::IsItemHovered();
+
+    // Drop a model or prefab from the Project panel: place it where the cursor hits the ground plane.
+    if (ImGui::BeginDragDropTarget()) {
+        if (const ImGuiPayload* payload = ImGui::AcceptDragDropPayload("ZE_ASSET")) {
+            std::string asset(static_cast<const char*>(payload->Data));
+            ImVec2 mouse = ImGui::GetMousePos();
+            float aspectDrop = size.x / std::max(size.y, 1.0f);
+            CameraData camDrop = m_EditorCamera.Data(aspectDrop);
+            glm::mat4 inv = glm::inverse(camDrop.projection * camDrop.view);
+            glm::vec2 ndc{(mouse.x - origin.x) / size.x * 2.0f - 1.0f, (mouse.y - origin.y) / size.y * 2.0f - 1.0f};
+            glm::vec4 n = inv * glm::vec4(ndc, 0.0f, 1.0f), f = inv * glm::vec4(ndc, 1.0f, 1.0f);
+            glm::vec3 ro = glm::vec3(n) / n.w, rd = glm::normalize(glm::vec3(f) / f.w - ro);
+            glm::vec3 point = ro + rd * 8.0f;
+            if (rd.y < -1e-4f) {
+                float t = -ro.y / rd.y;
+                if (t > 0.0f && t < 500.0f)
+                    point = ro + rd * t;
+            }
+            InstantiateAsset(asset, 0, &point);
+        }
+        ImGui::EndDragDropTarget();
+    }
     // Right/middle clicks in the view should focus it (for W/E/R, F, Delete shortcuts).
     if (m_SceneViewHovered && (ImGui::IsMouseClicked(ImGuiMouseButton_Right) || ImGui::IsMouseClicked(ImGuiMouseButton_Middle)))
         ImGui::SetWindowFocus();
@@ -70,7 +92,8 @@ void EditorApp::DrawSceneView()
         if (!e->active || e->meshRenderer || e->IsUIOnly())
             continue;
         ImVec2 p;
-        if (!WorldToScreen(viewProj, e->transform.position, origin, size, p))
+        glm::vec3 worldPos(e->world[3]);
+        if (!WorldToScreen(viewProj, worldPos, origin, size, p))
             continue;
         UI::Icon icon = e->camera ? UI::Icon::Camera : e->light ? UI::Icon::Light : UI::Icon::Empty;
         float r = 14.0f;
@@ -79,7 +102,8 @@ void EditorApp::DrawSceneView()
         UI::DrawIcon(draw, icon, {p.x - r, p.y - r}, {p.x + r, p.y + r}, IM_COL32(230, 230, 230, 255));
         if (e->light && e->id == m_Selected) {
             ImVec2 tip;
-            if (WorldToScreen(viewProj, e->transform.position + e->transform.Forward() * 2.0f, origin, size, tip))
+            glm::vec3 forward = glm::normalize(glm::vec3(e->world[2]));
+            if (WorldToScreen(viewProj, worldPos + forward * 2.0f, origin, size, tip))
                 draw->AddLine(p, tip, IM_COL32(250, 210, 80, 255), 2.0f);
         }
     }
@@ -92,7 +116,7 @@ void EditorApp::DrawSceneView()
         ImGuizmo::SetDrawlist();
         ImGuizmo::SetRect(origin.x, origin.y, size.x, size.y);
         glm::mat4 projection = m_EditorCamera.lens.ProjectionYUp(aspect);
-        glm::mat4 model = selected->transform.Matrix();
+        glm::mat4 model = selected->world;
 
         bool snap = m_Snap || ImGui::GetIO().KeyCtrl;
         float snapValue = m_GizmoOperation == ImGuizmo::ROTATE ? 15.0f : m_GizmoOperation == ImGuizmo::SCALE ? 0.1f : 0.5f;
@@ -100,15 +124,9 @@ void EditorApp::DrawSceneView()
         ImGuizmo::MODE mode = m_GizmoOperation == ImGuizmo::SCALE ? ImGuizmo::LOCAL : m_GizmoMode;
         if (ImGuizmo::Manipulate(glm::value_ptr(cam.view), glm::value_ptr(projection), m_GizmoOperation, mode,
                                  glm::value_ptr(model), nullptr, snap ? snapValues : nullptr)) {
-            glm::vec3 scale, translation, skew;
-            glm::vec4 perspective;
-            glm::quat rotation;
-            if (glm::decompose(model, scale, rotation, translation, skew, perspective)) {
-                selected->transform.position = translation;
-                selected->transform.rotation = glm::normalize(rotation);
-                selected->transform.scale = scale;
-                MarkDirty();
-            }
+            m_Scene.SetWorldMatrix(*selected, model);
+            m_Scene.UpdateWorldTransforms();
+            MarkDirty();
         }
         gizmoOver = ImGuizmo::IsOver() || ImGuizmo::IsUsing();
     }

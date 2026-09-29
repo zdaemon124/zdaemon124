@@ -10,7 +10,7 @@
 // Small immediate-mode helpers for a Unity-like look (icons, label/value property rows).
 namespace ze::UI {
 
-enum class Icon { Move, Rotate, Scale, Play, Pause, Step, Folder, File, Scene, Cube, Light, Camera, Empty, Image };
+enum class Icon { Move, Rotate, Scale, Play, Pause, Step, Folder, File, Scene, Cube, Light, Camera, Empty, Image, Model, Prefab };
 
 void Tooltip(const char* text);
 void DrawIcon(ImDrawList* draw, Icon icon, ImVec2 min, ImVec2 max, ImU32 color);

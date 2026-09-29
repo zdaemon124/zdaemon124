@@ -1,5 +1,6 @@
 #pragma once
 
+#include "ZEngine/Assets/Model.h"
 #include "ZEngine/Renderer/Font.h"
 #include "ZEngine/Renderer/Mesh.h"
 #include "ZEngine/Renderer/Texture.h"
@@ -64,9 +65,12 @@ public:
 
     // ---- Meshes (owned by the renderer, live until it is destroyed) ----
     Mesh* CreateMesh(const std::string& name, const MeshData& data);
-    Mesh* FindMesh(const std::string& name) const;
+    Mesh* FindMesh(const std::string& name);
     Mesh* GetPrimitive(PrimitiveType type) const { return m_Primitives[static_cast<size_t>(type)]; }
     std::vector<std::string> MeshNames() const;
+    // Imports a model (FBX / OBJ / glTF) once and uploads its meshes as "<path>#<part>". Null on failure.
+    const ModelAsset* LoadModel(const std::string& assetPath);
+    void UnloadModel(const std::string& assetPath);
 
     // ---- Textures (owned by the renderer) ----
     Texture* CreateTexture(const std::string& name, const ImageData& image);
@@ -129,6 +133,7 @@ private:
     void CreateTargetImages(RenderTarget& target, VkExtent2D extent);
     void DrawMesh(VkCommandBuffer cmd, const Mesh& mesh, const glm::mat4& model, const glm::vec4& color,
                   float checker = 0.0f);
+    void BindMaterialTexture(VkCommandBuffer cmd, Texture* texture);
     void DrawUI(VkCommandBuffer cmd, const Scene& scene, VkExtent2D extent);
     void CreateTextureResources();
     void DestroyTexture(Texture& texture);
@@ -143,6 +148,7 @@ private:
     uint32_t m_FrameIndex = 0;
     uint32_t m_ImageIndex = 0;
     uint32_t m_ViewIndex = 0;
+    Texture* m_BoundMaterialTexture = nullptr;
     bool m_FrameActive = false;
     bool m_ScreenReady = false;   // swapchain image is in COLOR_ATTACHMENT layout
     bool m_SwapchainDirty = false;
@@ -162,6 +168,7 @@ private:
     VkDescriptorSetLayout m_TextureSetLayout = VK_NULL_HANDLE;
     VkDescriptorPool m_TexturePool = VK_NULL_HANDLE;
     VkSampler m_LinearSampler = VK_NULL_HANDLE;
+    VkSampler m_RepeatSampler = VK_NULL_HANDLE;
     VkPipelineLayout m_UIPipelineLayout = VK_NULL_HANDLE;
     VkPipeline m_UIPipeline = VK_NULL_HANDLE;
     std::unordered_map<std::string, std::unique_ptr<Texture>> m_Textures;
@@ -171,6 +178,9 @@ private:
     std::unique_ptr<Font> m_DefaultFont;
     bool m_FontSearched = false;
     std::vector<UIVertex> m_UIVertexScratch; // reused every frame to avoid allocations
+
+    std::unordered_map<std::string, std::unique_ptr<ModelAsset>> m_Models;
+    std::unordered_set<std::string> m_FailedModels;
 
     std::vector<std::unique_ptr<Mesh>> m_Meshes;
     std::unordered_map<std::string, Mesh*> m_MeshByName;

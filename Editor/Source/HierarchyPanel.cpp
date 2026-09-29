@@ -4,6 +4,8 @@
 
 #include <algorithm>
 #include <cctype>
+#include <functional>
+#include <unordered_map>
 
 namespace ze {
 
@@ -92,94 +94,158 @@ void EditorApp::DrawHierarchy()
     ImGui::Separator();
 
     ImGui::BeginChild("entities");
-    // Scene root node.
+    auto& entities = m_Scene.Entities();
+
+    // Children lists (scene order) for the 3D tree; screen UI lives in the UI panel.
+    std::unordered_map<EntityID, std::vector<Entity*>> children;
+    for (auto& e : entities) {
+        if (e->IsUIOnly())
+            continue;
+        EntityID parent = e->parent && m_Scene.Get(e->parent) ? e->parent : 0;
+        children[parent].push_back(e.get());
+    }
+
+    // Deferred actions (never modify the scene while iterating it).
+    EntityID toDelete = 0, toDuplicate = 0, toPrefab = 0, moveUp = 0, moveDown = 0, createChildOf = 0;
+    std::pair<EntityID, EntityID> reparent{0, 0};
+    bool reparentRequested = false;
+    std::pair<std::string, EntityID> instantiate;
+
+    auto acceptDrops = [&](EntityID target) {
+        if (!ImGui::BeginDragDropTarget())
+            return;
+        if (const ImGuiPayload* payload = ImGui::AcceptDragDropPayload("ZE_ENTITY")) {
+            reparent = {*static_cast<const EntityID*>(payload->Data), target};
+            reparentRequested = true;
+        }
+        if (const ImGuiPayload* payload = ImGui::AcceptDragDropPayload("ZE_ASSET"))
+            instantiate = {static_cast<const char*>(payload->Data), target};
+        ImGui::EndDragDropTarget();
+    };
+
+    auto drawRow = [&](Entity& e, bool hasChildren, bool flat) -> bool {
+        float iconSize = ImGui::GetTextLineHeight();
+        ImVec2 start = ImGui::GetCursorScreenPos();
+        ImGuiTreeNodeFlags flags = ImGuiTreeNodeFlags_SpanAvailWidth | ImGuiTreeNodeFlags_FramePadding |
+                                   ImGuiTreeNodeFlags_OpenOnArrow | ImGuiTreeNodeFlags_OpenOnDoubleClick;
+        if (!hasChildren || flat)
+            flags |= ImGuiTreeNodeFlags_Leaf | ImGuiTreeNodeFlags_NoTreePushOnOpen; // leaves need no TreePop
+        if (e.id == m_Selected)
+            flags |= ImGuiTreeNodeFlags_Selected;
+
+        if (m_RenamingEntity == e.id) {
+            ImGui::SetNextItemWidth(-FLT_MIN);
+            ImGui::SetKeyboardFocusHere();
+            if (ImGui::InputText("##rename", &m_RenameBuffer, ImGuiInputTextFlags_EnterReturnsTrue | ImGuiInputTextFlags_AutoSelectAll)) {
+                if (!m_RenameBuffer.empty()) {
+                    e.name = m_RenameBuffer;
+                    MarkDirty();
+                }
+                m_RenamingEntity = 0;
+            }
+            if (ImGui::IsKeyPressed(ImGuiKey_Escape) || (!ImGui::IsItemActive() && ImGui::IsMouseClicked(0)))
+                m_RenamingEntity = 0;
+            return false;
+        }
+
+        ImVec4 textColor = ImGui::GetStyleColorVec4(ImGuiCol_Text);
+        if (!e.prefab.empty())
+            textColor = ImVec4(0.45f, 0.7f, 1.0f, 1.0f); // prefab instances are blue, like Unity
+        if (!e.active)
+            textColor.w *= 0.45f;
+        ImGui::PushStyleColor(ImGuiCol_Text, textColor);
+        bool open = ImGui::TreeNodeEx("##node", flags, "      %s", e.name.c_str());
+        ImGui::PopStyleColor();
+        float x = ImGui::GetItemRectMin().x + ImGui::GetTreeNodeToLabelSpacing() - 2.0f;
+        float y = start.y + ImGui::GetStyle().FramePadding.y;
+        UI::DrawIcon(ImGui::GetWindowDrawList(), EntityIcon(e), {x, y}, {x + iconSize, y + iconSize},
+                     ImGui::GetColorU32(ImGuiCol_Text));
+
+        if (ImGui::IsItemClicked(ImGuiMouseButton_Left) && !ImGui::IsItemToggledOpen())
+            Select(e.id);
+        if (ImGui::IsItemClicked(ImGuiMouseButton_Right))
+            Select(e.id);
+        if (ImGui::IsItemHovered() && ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left) && !hasChildren)
+            FocusSelected();
+
+        if (ImGui::BeginDragDropSource()) {
+            ImGui::SetDragDropPayload("ZE_ENTITY", &e.id, sizeof(EntityID));
+            ImGui::Text("%s", e.name.c_str());
+            ImGui::TextDisabled("Drop on an object to make it a child, on the Project panel to create a prefab");
+            ImGui::EndDragDropSource();
+        }
+        acceptDrops(e.id);
+
+        if (ImGui::BeginPopupContextItem("EntityContext")) {
+            if (ImGui::MenuItem("Rename", "F2")) {
+                m_RenamingEntity = e.id;
+                m_RenameBuffer = e.name;
+            }
+            if (ImGui::MenuItem("Duplicate", "Ctrl+D"))
+                toDuplicate = e.id;
+            if (ImGui::MenuItem("Delete", "Del"))
+                toDelete = e.id;
+            ImGui::Separator();
+            if (ImGui::MenuItem("Create Empty Child"))
+                createChildOf = e.id;
+            if (ImGui::MenuItem("Unparent", nullptr, false, e.parent != 0)) {
+                reparent = {e.id, 0};
+                reparentRequested = true;
+            }
+            if (ImGui::MenuItem("Move Up"))
+                moveUp = e.id;
+            if (ImGui::MenuItem("Move Down"))
+                moveDown = e.id;
+            ImGui::Separator();
+            if (ImGui::MenuItem("Create Prefab"))
+                toPrefab = e.id;
+            if (!e.prefab.empty() && ImGui::MenuItem("Unpack Prefab")) {
+                e.prefab.clear();
+                MarkDirty();
+            }
+            if (ImGui::MenuItem(e.active ? "Deactivate" : "Activate")) {
+                e.active = !e.active;
+                MarkDirty();
+            }
+            ImGui::EndPopup();
+        }
+        return open;
+    };
+
     std::string sceneName = m_ScenePath.empty() ? "Untitled" : m_ScenePath.stem().string();
     ImGui::SetNextItemOpen(true, ImGuiCond_Once);
     bool rootOpen = ImGui::TreeNodeEx("##scene-root", ImGuiTreeNodeFlags_SpanAvailWidth | ImGuiTreeNodeFlags_DefaultOpen,
                                       "%s%s", sceneName.c_str(), m_Dirty ? "*" : "");
+    acceptDrops(0);
     if (rootOpen) {
-        EntityID toDelete = 0, toDuplicate = 0, dragged = 0;
-        int dropIndex = -1;
-        auto& entities = m_Scene.Entities();
-        for (size_t i = 0; i < entities.size(); ++i) {
-            Entity& e = *entities[i];
-            if (e.IsUIOnly())
-                continue; // screen UI lives in the UI panel, not in the scene list
-            if (!filter.empty() && !ContainsNoCase(e.name, filter))
-                continue;
-            ImGui::PushID(int(e.id));
-
-            float iconSize = ImGui::GetTextLineHeight();
-            ImVec2 start = ImGui::GetCursorScreenPos();
-            ImGuiTreeNodeFlags flags = ImGuiTreeNodeFlags_Leaf | ImGuiTreeNodeFlags_NoTreePushOnOpen |
-                                       ImGuiTreeNodeFlags_SpanAvailWidth | ImGuiTreeNodeFlags_FramePadding;
-            if (e.id == m_Selected)
-                flags |= ImGuiTreeNodeFlags_Selected;
-
-            if (m_RenamingEntity == e.id) {
-                ImGui::SetNextItemWidth(-FLT_MIN);
-                ImGui::SetKeyboardFocusHere();
-                if (ImGui::InputText("##rename", &m_RenameBuffer,
-                                     ImGuiInputTextFlags_EnterReturnsTrue | ImGuiInputTextFlags_AutoSelectAll)) {
-                    if (!m_RenameBuffer.empty()) {
-                        e.name = m_RenameBuffer;
-                        MarkDirty();
-                    }
-                    m_RenamingEntity = 0;
-                }
-                if (ImGui::IsKeyPressed(ImGuiKey_Escape) || (!ImGui::IsItemActive() && ImGui::IsMouseClicked(0)))
-                    m_RenamingEntity = 0;
+        if (!filter.empty()) {
+            // Search results as a flat list.
+            for (auto& e : entities) {
+                if (e->IsUIOnly() || !ContainsNoCase(e->name, filter))
+                    continue;
+                ImGui::PushID(int(e->id));
+                drawRow(*e, false, true);
                 ImGui::PopID();
-                continue;
             }
-
-            if (!e.active)
-                ImGui::PushStyleColor(ImGuiCol_Text, ImGui::GetStyleColorVec4(ImGuiCol_TextDisabled));
-            ImGui::TreeNodeEx("##node", flags, "      %s", e.name.c_str());
-            if (!e.active)
-                ImGui::PopStyleColor();
-            float framePad = ImGui::GetStyle().FramePadding.y;
-            UI::DrawIcon(ImGui::GetWindowDrawList(), EntityIcon(e),
-                         {start.x + ImGui::GetTreeNodeToLabelSpacing() - 2.0f, start.y + framePad},
-                         {start.x + ImGui::GetTreeNodeToLabelSpacing() - 2.0f + iconSize, start.y + framePad + iconSize},
-                         ImGui::GetColorU32(ImGuiCol_Text));
-
-            if (ImGui::IsItemClicked(ImGuiMouseButton_Left) || ImGui::IsItemClicked(ImGuiMouseButton_Right))
-                Select(e.id);
-            if (ImGui::IsItemHovered() && ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left))
-                FocusSelected();
-
-            // Drag to reorder.
-            if (ImGui::BeginDragDropSource()) {
-                ImGui::SetDragDropPayload("ZE_ENTITY", &e.id, sizeof(EntityID));
-                ImGui::TextUnformatted(e.name.c_str());
-                ImGui::EndDragDropSource();
-            }
-            if (ImGui::BeginDragDropTarget()) {
-                if (const ImGuiPayload* payload = ImGui::AcceptDragDropPayload("ZE_ENTITY")) {
-                    dragged = *static_cast<const EntityID*>(payload->Data);
-                    dropIndex = int(i);
+        } else {
+            std::function<void(EntityID, int)> drawChildren = [&](EntityID parent, int depth) {
+                auto it = children.find(parent);
+                if (it == children.end() || depth > 64)
+                    return;
+                for (Entity* e : it->second) {
+                    ImGui::PushID(int(e->id));
+                    bool hasChildren = children.contains(e->id);
+                    // Keep the selected object visible: open its parents.
+                    if (m_Selected && m_Selected != e->id && m_Scene.IsDescendant(m_Selected, e->id) && m_RevealSelection)
+                        ImGui::SetNextItemOpen(true);
+                    if (drawRow(*e, hasChildren, false) && hasChildren) {
+                        drawChildren(e->id, depth + 1);
+                        ImGui::TreePop();
+                    }
+                    ImGui::PopID();
                 }
-                ImGui::EndDragDropTarget();
-            }
-
-            if (ImGui::BeginPopupContextItem("EntityContext")) {
-                if (ImGui::MenuItem("Rename", "F2")) {
-                    m_RenamingEntity = e.id;
-                    m_RenameBuffer = e.name;
-                }
-                if (ImGui::MenuItem("Duplicate", "Ctrl+D"))
-                    toDuplicate = e.id;
-                if (ImGui::MenuItem("Delete", "Del"))
-                    toDelete = e.id;
-                ImGui::Separator();
-                if (ImGui::MenuItem(e.active ? "Deactivate" : "Activate")) {
-                    e.active = !e.active;
-                    MarkDirty();
-                }
-                ImGui::EndPopup();
-            }
-            ImGui::PopID();
+            };
+            drawChildren(0, 0);
         }
 
         size_t uiCount = std::count_if(entities.begin(), entities.end(), [](const auto& e) { return e->IsUIOnly(); });
@@ -193,41 +259,67 @@ void EditorApp::DrawHierarchy()
             if (sel && sel->IsUIOnly())
                 flags |= ImGuiTreeNodeFlags_Selected;
             ImGui::TreeNodeEx("##screen-ui", flags, "      Screen UI  (%zu)", uiCount);
-            UI::DrawIcon(ImGui::GetWindowDrawList(), UI::Icon::Image,
-                         {start.x + ImGui::GetTreeNodeToLabelSpacing() - 2.0f, start.y + ImGui::GetStyle().FramePadding.y},
-                         {start.x + ImGui::GetTreeNodeToLabelSpacing() - 2.0f + iconSize,
-                          start.y + ImGui::GetStyle().FramePadding.y + iconSize},
+            float x = ImGui::GetItemRectMin().x + ImGui::GetTreeNodeToLabelSpacing() - 2.0f;
+            float y = start.y + ImGui::GetStyle().FramePadding.y;
+            UI::DrawIcon(ImGui::GetWindowDrawList(), UI::Icon::Image, {x, y}, {x + iconSize, y + iconSize},
                          ImGui::GetColorU32(ImGuiCol_Text));
             if (ImGui::IsItemClicked())
                 m_FocusUIPanel = true;
             UI::Tooltip("Screen-space UI is edited in the UI panel");
         }
-
-        if (dragged && dropIndex >= 0) {
-            m_Scene.Move(dragged, dropIndex);
-            MarkDirty();
-        }
-        if (toDuplicate) {
-            Select(toDuplicate);
-            DuplicateSelected();
-        }
-        if (toDelete) {
-            Select(toDelete);
-            DeleteSelected();
-        }
         ImGui::TreePop();
     }
+    m_RevealSelection = false;
 
-    // Empty space: deselect / create.
-    ImGui::Dummy(ImGui::GetContentRegionAvail());
+    // Empty space: deselect, drop to the scene root, create.
+    ImGui::Dummy(ImVec2(ImGui::GetContentRegionAvail().x, std::max(ImGui::GetContentRegionAvail().y, 40.0f)));
     if (ImGui::IsItemClicked(ImGuiMouseButton_Left))
         Select(0);
+    acceptDrops(0);
     if (ImGui::BeginPopupContextWindow("HierarchyContext", ImGuiPopupFlags_MouseButtonRight | ImGuiPopupFlags_NoOpenOverItems)) {
         DrawCreateMenuItems();
         ImGui::EndPopup();
     }
     ImGui::EndChild();
     ImGui::End();
+
+    // Apply deferred actions.
+    if (reparentRequested && reparent.first != reparent.second) {
+        if (m_Scene.SetParent(reparent.first, reparent.second, true)) {
+            // Keep the child right after its new parent's subtree so the list order matches the tree.
+            MarkDirty();
+        }
+    }
+    if (!instantiate.first.empty())
+        InstantiateAsset(instantiate.first, instantiate.second);
+    if (createChildOf) {
+        Entity& child = CreateObject("GameObject");
+        child.parent = createChildOf;
+    }
+    if (moveUp || moveDown) {
+        EntityID id = moveUp ? moveUp : moveDown;
+        Entity* e = m_Scene.Get(id);
+        // Swap with the previous / next sibling in the scene order.
+        auto& list = children[e && e->parent ? e->parent : 0];
+        auto it = std::find(list.begin(), list.end(), e);
+        if (it != list.end()) {
+            Entity* other = moveUp ? (it != list.begin() ? *(it - 1) : nullptr) : (it + 1 != list.end() ? *(it + 1) : nullptr);
+            if (other) {
+                m_Scene.Move(id, m_Scene.IndexOf(other->id));
+                MarkDirty();
+            }
+        }
+    }
+    if (toPrefab)
+        CreatePrefab(toPrefab, m_ProjectCurrentDir);
+    if (toDuplicate) {
+        Select(toDuplicate);
+        DuplicateSelected();
+    }
+    if (toDelete) {
+        Select(toDelete);
+        DeleteSelected();
+    }
 }
 
 } // namespace ze

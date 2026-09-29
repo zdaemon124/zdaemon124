@@ -35,7 +35,7 @@ public:
     AllocatedBuffer CreateBufferWithData(const void* data, VkDeviceSize size, VkBufferUsageFlags usage);
 
     AllocatedImage CreateImage(VkExtent2D extent, VkFormat format, VkImageUsageFlags usage,
-                               VkImageAspectFlags aspect);
+                               VkImageAspectFlags aspect, uint32_t mipLevels = 1);
     void DestroyImage(AllocatedImage& image);
 
 private:

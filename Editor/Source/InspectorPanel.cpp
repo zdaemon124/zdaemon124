@@ -27,13 +27,44 @@ void EditorApp::DrawInspector()
         ImGui::End();
         return;
     }
-    Entity* e = Selected();
-    if (!e) {
+    if (!m_SelectedAsset.empty()) {
+        DrawAssetInspector();
+    } else if (Entity* e = Selected()) {
+        if (e->prefab.size() && UI::BeginProperties("prefab")) {
+            UI::PropertyLabel("Prefab");
+            ImGui::TextColored(ImVec4(0.45f, 0.7f, 1.0f, 1.0f), "%s", e->prefab.c_str());
+            UI::EndProperties();
+            if (ImGui::SmallButton("Select Asset"))
+                SelectAsset(e->prefab);
+            ImGui::SameLine();
+            if (ImGui::SmallButton("Apply"))
+                ApplyPrefab(e->id);
+            UI::Tooltip("Save this instance (with its children) into the prefab and update all instances");
+            ImGui::SameLine();
+            if (ImGui::SmallButton("Revert"))
+                RevertPrefab(e->id);
+            UI::Tooltip("Discard changes of this instance");
+            ImGui::SameLine();
+            if (ImGui::SmallButton("Unpack")) {
+                e->prefab.clear();
+                MarkDirty();
+            }
+            UI::Tooltip("Turn into regular objects (no link to the prefab)");
+            ImGui::Separator();
+        }
+        if (e && DrawEntityInspector(*e))
+            MarkDirty();
+        if (IsPlaying())
+            ImGui::TextDisabled("Play mode: changes will be reverted when you press Stop.");
+    } else {
         DrawSceneSettings();
-        ImGui::End();
-        return;
     }
+    ImGui::End();
+}
 
+bool EditorApp::DrawEntityInspector(Entity& entity)
+{
+    Entity* e = &entity;
     bool changed = false;
     ImGui::PushID(int(e->id));
 
@@ -62,6 +93,9 @@ void EditorApp::DrawInspector()
             cachedRotation = e->transform.rotation;
             m_EulerCacheEntity = e->id;
         }
+        if (e->parent)
+            if (const Entity* parent = m_Scene.Get(e->parent))
+                ImGui::TextDisabled("Local to parent: %s", parent->name.c_str());
         if (UI::BeginProperties("transform")) {
             changed |= UI::PropertyVec3("Position", e->transform.position, 0.05f);
             if (UI::PropertyVec3("Rotation", m_EulerCache, 0.5f, "%.1f")) {
@@ -79,7 +113,7 @@ void EditorApp::DrawInspector()
         if (ComponentHeader("Mesh Renderer", keep) && UI::BeginProperties("mesh")) {
             MeshRendererComponent& mr = *e->meshRenderer;
             UI::PropertyLabel("Mesh");
-            if (ImGui::BeginCombo("##mesh", mr.mesh.c_str())) {
+            if (ImGui::BeginCombo("##mesh", mr.mesh.c_str(), ImGuiComboFlags_HeightLarge)) {
                 for (const std::string& name : GetRenderer().MeshNames())
                     if (ImGui::Selectable(name.c_str(), name == mr.mesh)) {
                         mr.mesh = name;
@@ -88,6 +122,10 @@ void EditorApp::DrawInspector()
                 ImGui::EndCombo();
             }
             changed |= UI::PropertyColor("Color", mr.color);
+            UI::PropertyLabel("Texture");
+            ImGui::PushID("texture");
+            changed |= DrawSpriteField(mr.texture);
+            ImGui::PopID();
             changed |= UI::PropertyFloat("Checker Scale", mr.checkerScale, 0.01f, 0.0f, 100.0f);
             UI::EndProperties();
         }
@@ -249,13 +287,8 @@ void EditorApp::DrawInspector()
         if (!e->rectTransform && ImGui::MenuItem("Rect Transform")) { e->rectTransform = RectTransform{}; changed = true; }
         ImGui::EndPopup();
     }
-    if (IsPlaying())
-        ImGui::TextDisabled("Play mode: changes will be reverted when you press Stop.");
-
     ImGui::PopID();
-    if (changed)
-        MarkDirty();
-    ImGui::End();
+    return changed;
 }
 
 namespace {
@@ -443,7 +476,7 @@ void EditorApp::DrawRectTransform(Entity& entity, bool& changed)
 bool EditorApp::DrawSpriteField(std::string& sprite)
 {
     bool changed = false;
-    std::string label = sprite.empty() ? "None (plain color)" : sprite;
+    std::string label = sprite.empty() ? "None" : sprite;
     if (ImGui::Button(label.c_str(), ImVec2(-FLT_MIN, 0.0f)))
         ImGui::OpenPopup("SpritePicker");
     UI::Tooltip("Click to choose, or drag an image from the Project panel here");

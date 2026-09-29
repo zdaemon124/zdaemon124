@@ -353,13 +353,13 @@ AllocatedBuffer VulkanContext::CreateBufferWithData(const void* data, VkDeviceSi
 }
 
 AllocatedImage VulkanContext::CreateImage(VkExtent2D extent, VkFormat format, VkImageUsageFlags usage,
-                                          VkImageAspectFlags aspect)
+                                          VkImageAspectFlags aspect, uint32_t mipLevels)
 {
     VkImageCreateInfo imageInfo{VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO};
     imageInfo.imageType = VK_IMAGE_TYPE_2D;
     imageInfo.format = format;
     imageInfo.extent = {extent.width, extent.height, 1};
-    imageInfo.mipLevels = 1;
+    imageInfo.mipLevels = mipLevels;
     imageInfo.arrayLayers = 1;
     imageInfo.samples = VK_SAMPLE_COUNT_1_BIT;
     imageInfo.tiling = VK_IMAGE_TILING_OPTIMAL;
@@ -377,7 +377,7 @@ AllocatedImage VulkanContext::CreateImage(VkExtent2D extent, VkFormat format, Vk
     viewInfo.image = image.image;
     viewInfo.viewType = VK_IMAGE_VIEW_TYPE_2D;
     viewInfo.format = format;
-    viewInfo.subresourceRange = {aspect, 0, 1, 0, 1};
+    viewInfo.subresourceRange = {aspect, 0, mipLevels, 0, 1};
     ZE_VK_CHECK(vkCreateImageView(m_Device, &viewInfo, nullptr, &image.view));
     return image;
 }

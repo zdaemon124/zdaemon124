@@ -57,6 +57,18 @@ FetchContent_Declare(stb
     GIT_TAG        2c980bb59875b0d32144a71867fbdebb2f77cd20
     SOURCE_SUBDIR  _none)
 
+# Model importers: ufbx (FBX, OBJ) and cgltf (glTF 2.0).
+FetchContent_Declare(ufbx
+    GIT_REPOSITORY https://github.com/ufbx/ufbx.git
+    GIT_TAG        v0.23.1
+    GIT_SHALLOW    TRUE
+    SOURCE_SUBDIR  _none)
+FetchContent_Declare(cgltf
+    GIT_REPOSITORY https://github.com/jkuhlmann/cgltf.git
+    GIT_TAG        v1.15
+    GIT_SHALLOW    TRUE
+    SOURCE_SUBDIR  _none)
+
 # Jolt Physics (the CMake project lives in the Build/ subfolder).
 set(TARGET_UNIT_TESTS         OFF CACHE BOOL "" FORCE)
 set(TARGET_HELLO_WORLD        OFF CACHE BOOL "" FORCE)
@@ -75,7 +87,7 @@ FetchContent_Declare(jolt
     GIT_SHALLOW    TRUE
     SOURCE_SUBDIR  Build)
 
-FetchContent_MakeAvailable(vulkan_headers volk vma glm glfw imgui imguizmo nlohmann_json stb jolt)
+FetchContent_MakeAvailable(vulkan_headers volk vma glm glfw imgui imguizmo nlohmann_json stb ufbx cgltf jolt)
 
 # volk: Vulkan function loader (no link against vulkan-1.lib needed).
 add_library(volk STATIC ${volk_SOURCE_DIR}/volk.c)
@@ -109,7 +121,12 @@ target_link_libraries(imgui PUBLIC volk glfw)
 add_library(stb_headers INTERFACE)
 target_include_directories(stb_headers SYSTEM INTERFACE ${stb_SOURCE_DIR})
 
+add_library(ufbx STATIC ${ufbx_SOURCE_DIR}/ufbx.c)
+target_include_directories(ufbx PUBLIC ${ufbx_SOURCE_DIR})
+add_library(cgltf_headers INTERFACE)
+target_include_directories(cgltf_headers SYSTEM INTERFACE ${cgltf_SOURCE_DIR})
+
 add_library(json_headers INTERFACE)
 target_include_directories(json_headers SYSTEM INTERFACE ${nlohmann_json_SOURCE_DIR}/single_include)
 
-set_target_properties(volk glfw imgui Jolt PROPERTIES FOLDER "ThirdParty")
+set_target_properties(volk glfw imgui ufbx Jolt PROPERTIES FOLDER "ThirdParty")

@@ -7,6 +7,8 @@
 
 #include <fstream>
 #include <sstream>
+#include <unordered_map>
+#include <vector>
 
 using json = nlohmann::json;
 
@@ -38,7 +40,7 @@ NLOHMANN_JSON_SERIALIZE_ENUM(ColliderShape, {
 
 // Missing fields keep their defaults, so older scene files keep loading.
 NLOHMANN_DEFINE_TYPE_NON_INTRUSIVE_WITH_DEFAULT(Transform, position, rotation, scale)
-NLOHMANN_DEFINE_TYPE_NON_INTRUSIVE_WITH_DEFAULT(MeshRendererComponent, mesh, color, checkerScale)
+NLOHMANN_DEFINE_TYPE_NON_INTRUSIVE_WITH_DEFAULT(MeshRendererComponent, mesh, color, texture, checkerScale)
 NLOHMANN_DEFINE_TYPE_NON_INTRUSIVE_WITH_DEFAULT(ColliderComponent, shape, center, size, radius, height, friction,
                                                 bounciness, isTrigger)
 NLOHMANN_DEFINE_TYPE_NON_INTRUSIVE_WITH_DEFAULT(RigidbodyComponent, mass, linearDamping, angularDamping, useGravity,
@@ -107,6 +109,48 @@ std::optional<RectTransform> LegacyRect(const json& components)
 
 } // namespace
 
+json EntityToJson(const Entity& e)
+{
+    json je;
+    je["id"] = e.id;
+    je["name"] = e.name;
+    je["active"] = e.active;
+    if (e.parent)
+        je["parent"] = e.parent;
+    if (!e.prefab.empty())
+        je["prefab"] = e.prefab;
+    je["transform"] = e.transform;
+    json& components = je["components"] = json::object();
+    WriteOptional(components, "MeshRenderer", e.meshRenderer);
+    WriteOptional(components, "Collider", e.collider);
+    WriteOptional(components, "Rigidbody", e.rigidbody);
+    WriteOptional(components, "Light", e.light);
+    WriteOptional(components, "Camera", e.camera);
+    WriteOptional(components, "RectTransform", e.rectTransform);
+    WriteOptional(components, "UIImage", e.uiImage);
+    WriteOptional(components, "UIText", e.uiText);
+    return je;
+}
+
+void EntityFromJson(Entity& e, const json& je)
+{
+    e.active = je.value("active", true);
+    e.parent = je.value("parent", 0u);
+    e.prefab = je.value("prefab", std::string());
+    e.transform = je.value("transform", Transform{});
+    const json components = je.value("components", json::object());
+    ReadOptional(components, "MeshRenderer", e.meshRenderer);
+    ReadOptional(components, "Collider", e.collider);
+    ReadOptional(components, "Rigidbody", e.rigidbody);
+    ReadOptional(components, "Light", e.light);
+    ReadOptional(components, "Camera", e.camera);
+    ReadOptional(components, "RectTransform", e.rectTransform);
+    ReadOptional(components, "UIImage", e.uiImage);
+    ReadOptional(components, "UIText", e.uiText);
+    if (!e.rectTransform)
+        e.rectTransform = LegacyRect(components);
+}
+
 std::string ToString(const Scene& scene)
 {
     json root;
@@ -114,23 +158,8 @@ std::string ToString(const Scene& scene)
     root["version"] = kFormatVersion;
     root["settings"] = scene.settings;
     json& entities = root["entities"] = json::array();
-    for (const auto& e : scene.Entities()) {
-        json je;
-        je["id"] = e->id;
-        je["name"] = e->name;
-        je["active"] = e->active;
-        je["transform"] = e->transform;
-        json& components = je["components"] = json::object();
-        WriteOptional(components, "MeshRenderer", e->meshRenderer);
-        WriteOptional(components, "Collider", e->collider);
-        WriteOptional(components, "Rigidbody", e->rigidbody);
-        WriteOptional(components, "Light", e->light);
-        WriteOptional(components, "Camera", e->camera);
-        WriteOptional(components, "RectTransform", e->rectTransform);
-        WriteOptional(components, "UIImage", e->uiImage);
-        WriteOptional(components, "UIText", e->uiText);
-        entities.push_back(std::move(je));
-    }
+    for (const auto& e : scene.Entities())
+        entities.push_back(EntityToJson(*e));
     return root.dump(2);
 }
 
@@ -146,20 +175,9 @@ bool FromString(Scene& scene, const std::string& text)
         scene.settings = root.value("settings", SceneSettings{});
         for (const json& je : root.value("entities", json::array())) {
             Entity& e = scene.CreateEntity(je.value("name", std::string("Entity")), je.value("id", 0u));
-            e.active = je.value("active", true);
-            e.transform = je.value("transform", Transform{});
-            const json components = je.value("components", json::object());
-            ReadOptional(components, "MeshRenderer", e.meshRenderer);
-            ReadOptional(components, "Collider", e.collider);
-            ReadOptional(components, "Rigidbody", e.rigidbody);
-            ReadOptional(components, "Light", e.light);
-            ReadOptional(components, "Camera", e.camera);
-            ReadOptional(components, "RectTransform", e.rectTransform);
-            ReadOptional(components, "UIImage", e.uiImage);
-            ReadOptional(components, "UIText", e.uiText);
-            if (!e.rectTransform)
-                e.rectTransform = LegacyRect(components);
+            EntityFromJson(e, je);
         }
+        scene.UpdateWorldTransforms();
     } catch (const json::exception& ex) {
         Log::Error("Failed to read scene: {}", ex.what());
         return false;
@@ -180,16 +198,107 @@ bool Save(const Scene& scene, const std::filesystem::path& path)
     return true;
 }
 
-bool Load(Scene& scene, const std::filesystem::path& path)
+std::string ReadTextFile(const std::filesystem::path& path)
 {
     std::ifstream file(path, std::ios::binary);
-    if (!file) {
+    if (!file)
+        return {};
+    std::stringstream buffer;
+    buffer << file.rdbuf();
+    return buffer.str();
+}
+
+bool Load(Scene& scene, const std::filesystem::path& path)
+{
+    std::string text = ReadTextFile(path);
+    if (text.empty()) {
         Log::Error("Cannot open scene '{}'", path.string());
         return false;
     }
-    std::stringstream buffer;
-    buffer << file.rdbuf();
-    return FromString(scene, buffer.str());
+    return FromString(scene, text);
+}
+
+std::string SubtreeToString(const Scene& scene, uint32_t root)
+{
+    json doc;
+    doc["format"] = "ZEngine Prefab";
+    doc["version"] = kFormatVersion;
+    doc["root"] = root;
+    json& entities = doc["entities"] = json::array();
+    for (EntityID id : scene.Subtree(root)) {
+        json je = EntityToJson(*scene.Get(id));
+        if (id == root) {
+            je.erase("parent"); // the prefab root is placed by whoever instantiates it
+            je.erase("prefab");
+        }
+        entities.push_back(std::move(je));
+    }
+    return doc.dump(2);
+}
+
+uint32_t InstantiateFromString(Scene& scene, const std::string& text, uint32_t parent)
+{
+    json doc = json::parse(text, nullptr, false);
+    if (doc.is_discarded() || !doc.contains("entities"))
+        return 0;
+    try {
+        uint32_t oldRoot = doc.value("root", 0u);
+        std::unordered_map<uint32_t, uint32_t> remap;
+        std::vector<Entity*> created;
+        for (const json& je : doc["entities"]) {
+            Entity& e = scene.CreateEntity(je.value("name", std::string("Entity")));
+            remap[je.value("id", 0u)] = e.id;
+            EntityFromJson(e, je);
+            created.push_back(&e);
+        }
+        for (Entity* e : created) {
+            if (auto it = remap.find(e->parent); it != remap.end())
+                e->parent = it->second;
+            else
+                e->parent = 0;
+            if (e->rectTransform) {
+                if (auto it = remap.find(e->rectTransform->parent); it != remap.end())
+                    e->rectTransform->parent = it->second;
+                else
+                    e->rectTransform->parent = 0;
+            }
+        }
+        uint32_t root = remap.contains(oldRoot) ? remap[oldRoot] : (created.empty() ? 0 : created.front()->id);
+        if (Entity* r = scene.Get(root)) {
+            if (r->rectTransform && !r->meshRenderer && parent && scene.Get(parent) && scene.Get(parent)->rectTransform)
+                r->rectTransform->parent = parent;
+            else
+                r->parent = parent;
+        }
+        scene.UpdateWorldTransforms();
+        return root;
+    } catch (const json::exception& ex) {
+        Log::Error("Failed to read prefab: {}", ex.what());
+        return 0;
+    }
+}
+
+bool SavePrefab(const Scene& scene, uint32_t root, const std::filesystem::path& path)
+{
+    std::error_code ec;
+    std::filesystem::create_directories(path.parent_path(), ec);
+    std::ofstream file(path, std::ios::binary);
+    if (!file) {
+        Log::Error("Cannot write prefab '{}'", path.string());
+        return false;
+    }
+    file << SubtreeToString(scene, root);
+    return true;
+}
+
+uint32_t InstantiatePrefab(Scene& scene, const std::filesystem::path& path, uint32_t parent)
+{
+    std::string text = ReadTextFile(path);
+    if (text.empty()) {
+        Log::Error("Cannot open prefab '{}'", path.string());
+        return 0;
+    }
+    return InstantiateFromString(scene, text, parent);
 }
 
 } // namespace SceneSerializer

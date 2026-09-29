@@ -27,6 +27,7 @@ protected:
 
     void OnRender() override
     {
+        m_Scene.UpdateWorldTransforms();
         GetRenderer().RenderToScreen(m_Scene, m_Camera.Data(GetRenderer().ScreenAspectRatio()));
     }
 

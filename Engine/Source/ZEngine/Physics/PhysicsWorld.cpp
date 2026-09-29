@@ -19,6 +19,8 @@
 #include <Jolt/Physics/PhysicsSystem.h>
 #include <Jolt/RegisterTypes.h>
 
+#include <glm/gtc/matrix_transform.hpp>
+
 #include <algorithm>
 #include <mutex>
 #include <thread>
@@ -159,6 +161,7 @@ void PhysicsWorld::Start(Scene& scene)
     Stop();
     JPH::PhysicsSystem& system = *m_Impl->system;
     system.SetGravity(ToJolt(scene.settings.gravity));
+    scene.UpdateWorldTransforms();
 
     for (const auto& entity : scene.Entities())
         AddEntity(*entity);
@@ -173,7 +176,10 @@ void PhysicsWorld::AddEntity(const Entity& entity)
     if (!entity.active || !entity.collider)
         return;
     const ColliderComponent& collider = *entity.collider;
-    JPH::RefConst<JPH::Shape> shape = BuildShape(collider, entity.transform.scale);
+    glm::vec3 worldPosition, worldScale;
+    glm::quat worldRotation;
+    DecomposeWorld(entity.world, worldPosition, worldRotation, worldScale);
+    JPH::RefConst<JPH::Shape> shape = BuildShape(collider, worldScale);
     if (!shape)
         return;
 
@@ -182,8 +188,7 @@ void PhysicsWorld::AddEntity(const Entity& entity)
         motion = entity.rigidbody->isKinematic ? JPH::EMotionType::Kinematic : JPH::EMotionType::Dynamic;
     JPH::ObjectLayer layer = motion == JPH::EMotionType::Static ? Layers::kStatic : Layers::kMoving;
 
-    JPH::BodyCreationSettings settings(shape, JPH::RVec3(ToJolt(entity.transform.position)),
-                                       ToJolt(glm::normalize(entity.transform.rotation)), motion, layer);
+    JPH::BodyCreationSettings settings(shape, JPH::RVec3(ToJolt(worldPosition)), ToJolt(worldRotation), motion, layer);
     settings.mFriction = collider.friction;
     settings.mRestitution = collider.bounciness;
     settings.mIsSensor = collider.isTrigger;
@@ -231,9 +236,12 @@ void PhysicsWorld::FixedStep(Scene& scene)
     for (auto& [entityId, link] : m_Impl->bodies) {
         if (link.motion != JPH::EMotionType::Kinematic)
             continue;
-        if (const Entity* e = scene.Get(entityId))
-            bodies.MoveKinematic(link.body, JPH::RVec3(ToJolt(e->transform.position)),
-                                 ToJolt(glm::normalize(e->transform.rotation)), kFixedTimeStep);
+        if (const Entity* e = scene.Get(entityId)) {
+            glm::vec3 p, s;
+            glm::quat r;
+            DecomposeWorld(e->world, p, r, s);
+            bodies.MoveKinematic(link.body, JPH::RVec3(ToJolt(p)), ToJolt(r), kFixedTimeStep);
+        }
     }
 
     m_Impl->system->Update(kFixedTimeStep, 1, m_Impl->tempAllocator.get(), m_Impl->jobSystem.get());
@@ -248,9 +256,21 @@ void PhysicsWorld::FixedStep(Scene& scene)
         JPH::RVec3 position;
         JPH::Quat rotation;
         bodies.GetPositionAndRotation(link.body, position, rotation);
-        e->transform.position = ToGlm(JPH::Vec3(position));
-        e->transform.rotation = ToGlm(rotation);
+        if (e->parent == 0) {
+            e->transform.position = ToGlm(JPH::Vec3(position));
+            e->transform.rotation = ToGlm(rotation);
+            e->world = e->transform.Matrix();
+        } else {
+            // Child bodies: convert the simulated world pose back into the parent's space.
+            glm::vec3 p, scale;
+            glm::quat r;
+            DecomposeWorld(e->world, p, r, scale);
+            glm::mat4 world = glm::translate(glm::mat4(1.0f), ToGlm(JPH::Vec3(position))) *
+                              glm::mat4_cast(ToGlm(rotation)) * glm::scale(glm::mat4(1.0f), scale);
+            scene.SetWorldMatrix(*e, world);
+        }
     }
+    scene.UpdateWorldTransforms();
 }
 
 void PhysicsWorld::Stop()

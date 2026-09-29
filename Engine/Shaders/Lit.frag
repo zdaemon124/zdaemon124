@@ -8,9 +8,11 @@ layout(location = 2) in vec2 vUV;
 
 layout(location = 0) out vec4 outColor;
 
+layout(set = 1, binding = 0) uniform sampler2D albedoTexture;
+
 void main()
 {
-    vec3 albedo = SRGBToLinear(draw.color.rgb);
+    vec3 albedo = SRGBToLinear(draw.color.rgb * texture(albedoTexture, vUV).rgb);
     if (draw.params.x > 0.0) {
         vec2 cell = floor(vWorldPos.xz * draw.params.x);
         float checker = mod(cell.x + cell.y, 2.0);

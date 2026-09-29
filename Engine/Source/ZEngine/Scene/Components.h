@@ -9,8 +9,9 @@ namespace ze {
 // Colors are stored in sRGB like Unity's color pickers; shaders convert to linear.
 
 struct MeshRendererComponent {
-    std::string mesh = "Cube"; // name of a mesh registered in the renderer
-    glm::vec4 color{1.0f};
+    std::string mesh = "Cube"; // built-in primitive name, or "<model asset path>#<part>"
+    glm::vec4 color{1.0f};     // multiplied with the texture
+    std::string texture;       // base color texture (asset path), "" = none
     float checkerScale = 0.0f; // > 0 draws a world-space checker pattern
 };
 

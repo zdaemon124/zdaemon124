@@ -2,6 +2,8 @@
 
 #include "EditorUI.h"
 
+#include <imgui_internal.h>
+
 #include <ZEngine/Core/Platform.h>
 
 #include <algorithm>
@@ -113,12 +115,21 @@ void EditorApp::DrawProject()
                 bool isScene = entry.path.extension() == ".zscene";
 
                 ImVec2 pos = ImGui::GetCursorScreenPos();
-                bool selected = entry.path == m_ScenePath;
+                std::string assetPath = Platform::PathToUtf8(fs::relative(entry.path, assets, ec));
+                bool selected = assetPath == m_SelectedAsset;
                 ImGui::PushStyleColor(ImGuiCol_Header, ImVec4(0.17f, 0.36f, 0.53f, 0.6f));
                 ImGui::Selectable("##item", selected, ImGuiSelectableFlags_AllowDoubleClick,
                                   ImVec2(m_ProjectIconSize, m_ProjectIconSize));
                 ImGui::PopStyleColor();
                 bool hovered = ImGui::IsItemHovered();
+                if (ImGui::IsItemClicked(ImGuiMouseButton_Left) || ImGui::IsItemClicked(ImGuiMouseButton_Right))
+                    SelectAsset(assetPath); // shows the asset in the Inspector
+                if (entry.directory && ImGui::BeginDragDropTarget()) {
+                    // Drop a scene object on a folder to save it there as a prefab.
+                    if (const ImGuiPayload* payload = ImGui::AcceptDragDropPayload("ZE_ENTITY"))
+                        CreatePrefab(*static_cast<const EntityID*>(payload->Data), entry.path);
+                    ImGui::EndDragDropTarget();
+                }
                 if (hovered && ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left)) {
                     if (entry.directory)
                         navigateTo = entry.path;
@@ -126,7 +137,8 @@ void EditorApp::DrawProject()
                         pendingOpenScene = entry.path;
                 }
                 bool isImage = !entry.directory && ImageIO::IsImageFile(entry.path);
-                std::string assetPath = Platform::PathToUtf8(fs::relative(entry.path, assets, ec));
+                bool isModel = !entry.directory && ModelImporter::IsModelFile(entry.path);
+                bool isPrefab = entry.path.extension() == ".zprefab";
                 if (!entry.directory && ImGui::BeginDragDropSource()) {
                     ImGui::SetDragDropPayload("ZE_ASSET", assetPath.c_str(), assetPath.size() + 1);
                     ImGui::TextUnformatted(assetPath.c_str());
@@ -143,9 +155,13 @@ void EditorApp::DrawProject()
                     draw->AddRectFilled(a, {a.x + extent.x, a.y + extent.y}, IM_COL32(80, 80, 80, 255));
                     draw->AddImage(ImTextureRef(m_ImGui->Texture(*thumbnail)), a, {a.x + extent.x, a.y + extent.y});
                 } else {
-                    UI::DrawIcon(ImGui::GetWindowDrawList(),
-                                 entry.directory ? UI::Icon::Folder : isScene ? UI::Icon::Scene : UI::Icon::File, pos,
-                                 {pos.x + m_ProjectIconSize, pos.y + m_ProjectIconSize}, IM_COL32_WHITE);
+                    UI::Icon icon = entry.directory ? UI::Icon::Folder
+                                    : isScene      ? UI::Icon::Scene
+                                    : isModel      ? UI::Icon::Model
+                                    : isPrefab     ? UI::Icon::Prefab
+                                                   : UI::Icon::File;
+                    UI::DrawIcon(ImGui::GetWindowDrawList(), icon, pos, {pos.x + m_ProjectIconSize, pos.y + m_ProjectIconSize},
+                                 IM_COL32_WHITE);
                 }
                 if (hovered)
                     UI::Tooltip(entry.path.filename().string().c_str());
@@ -204,6 +220,15 @@ void EditorApp::DrawProject()
             }
             ImGui::EndTable();
         }
+
+        // Drop scene objects anywhere in the folder view to create prefabs.
+        if (ImGui::BeginDragDropTargetCustom(ImGui::GetCurrentWindow()->InnerRect, ImGui::GetID("files-drop"))) {
+            if (const ImGuiPayload* payload = ImGui::AcceptDragDropPayload("ZE_ENTITY"))
+                CreatePrefab(*static_cast<const EntityID*>(payload->Data), m_ProjectCurrentDir);
+            ImGui::EndDragDropTarget();
+        }
+        if (ImGui::IsWindowHovered() && ImGui::IsMouseClicked(ImGuiMouseButton_Left) && !ImGui::IsAnyItemHovered())
+            m_SelectedAsset.clear();
 
         // Background context menu.
         if (ImGui::BeginPopupContextWindow("files-context", ImGuiPopupFlags_MouseButtonRight | ImGuiPopupFlags_NoOpenOverItems)) {

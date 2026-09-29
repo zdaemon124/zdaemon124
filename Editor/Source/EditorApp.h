@@ -43,10 +43,27 @@ private:
     void DrawHierarchy();          // HierarchyPanel.cpp
     void DrawCreateMenuItems();    // HierarchyPanel.cpp
     void DrawInspector();          // InspectorPanel.cpp
+    bool DrawEntityInspector(Entity& entity); // InspectorPanel.cpp, returns true if changed
+    void DrawAssetInspector();     // AssetInspector.cpp
+    void SelectAsset(const std::string& assetPath);
+    // Prefabs & assets (Prefabs.cpp)
+    EntityID InstantiateAsset(const std::string& assetPath, EntityID parent, const glm::vec3* worldPosition = nullptr);
+    void CreatePrefab(EntityID root, const std::filesystem::path& folder);
+    void ApplyPrefab(EntityID instanceRoot);
+    void RevertPrefab(EntityID instanceRoot);
+    // Replaces every instance of `prefab` in the scene with the current asset (except `skip`).
+    void RefreshPrefabInstances(const std::string& prefab, EntityID skip = 0);
+    void BuildAssetPreview(const std::string& assetPath);
+    // Undo / redo (Prefabs.cpp)
+    void CommitUndoIfIdle();
+    void ResetUndo();
+    void Undo();
+    void Redo();
     void DrawSceneSettings();      // InspectorPanel.cpp
     void DrawProject();            // ProjectPanel.cpp
     void DrawConsole();            // ConsolePanel.cpp
     bool m_HierarchyFocused = false;
+    bool m_RevealSelection = false;
     void DrawSceneView();          // Viewports.cpp
     void DrawGameView();           // Viewports.cpp
     void DrawStats();              // Viewports.cpp
@@ -152,6 +169,28 @@ private:
     std::filesystem::path m_ProjectRenaming;
     std::string m_ProjectRenameBuffer;
     std::filesystem::path m_ProjectPendingDelete;
+
+    // Asset selection / preview
+    std::string m_SelectedAsset;
+    Scene m_PreviewScene;
+    std::string m_PreviewAsset;
+    std::unique_ptr<RenderTarget> m_PreviewTarget;
+    bool m_PreviewVisible = false;
+    float m_PreviewYaw = 35.0f;
+    float m_PreviewPitch = 20.0f;
+    float m_PreviewDistance = 5.0f;
+    glm::vec3 m_PreviewCenter{0.0f};
+    glm::vec3 m_PreviewSize{1.0f};
+    Scene m_PrefabScene;          // prefab being edited in the Inspector
+    std::string m_PrefabScenePath;
+    EntityID m_PrefabSelected = 0;
+    bool m_PrefabDirty = false;
+
+    // Undo / redo (whole-scene snapshots, taken when an edit gesture finishes)
+    std::vector<std::string> m_UndoStack;
+    std::vector<std::string> m_RedoStack;
+    std::string m_UndoBaseline;
+    bool m_UndoPending = false;
 
     // Game view UI editing
     bool m_DraggingUI = false;

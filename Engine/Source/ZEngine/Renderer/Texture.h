@@ -13,7 +13,9 @@ namespace ze {
 struct Texture {
     std::string name;
     AllocatedImage image;
-    VkDescriptorSet descriptor = VK_NULL_HANDLE; // set = 0, binding = 0 of the UI pipeline
+    VkDescriptorSet descriptor = VK_NULL_HANDLE;       // clamp-to-edge sampler (UI sprites)
+    VkDescriptorSet descriptorRepeat = VK_NULL_HANDLE; // repeating sampler (3D materials)
+    uint32_t mipLevels = 1;
     uint32_t width = 0;
     uint32_t height = 0;
     // Cached ImGui texture handle (managed by ImGuiLayer).

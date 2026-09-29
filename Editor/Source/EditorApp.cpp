@@ -28,6 +28,7 @@ EditorApp::EditorApp(const ApplicationDesc& desc, int argc, char** argv) : Appli
     m_SceneTarget = GetRenderer().CreateRenderTarget(m_SceneViewSize);
     m_GameTarget = GetRenderer().CreateRenderTarget(m_GameViewSize);
     m_UITarget = GetRenderer().CreateRenderTarget(m_UITargetSize);
+    m_PreviewTarget = GetRenderer().CreateRenderTarget({512, 360});
 }
 
 EditorApp::~EditorApp()
@@ -36,6 +37,8 @@ EditorApp::~EditorApp()
     m_ImGui->ReleaseTexture(*m_SceneTarget);
     m_ImGui->ReleaseTexture(*m_GameTarget);
     m_ImGui->ReleaseTexture(*m_UITarget);
+    m_ImGui->ReleaseTexture(*m_PreviewTarget);
+    GetRenderer().DestroyRenderTarget(*m_PreviewTarget);
     GetRenderer().DestroyRenderTarget(*m_SceneTarget);
     GetRenderer().DestroyRenderTarget(*m_GameTarget);
     GetRenderer().DestroyRenderTarget(*m_UITarget);
@@ -62,6 +65,7 @@ void EditorApp::OnStart()
         SaveSceneAs(mainScene);
     }
 
+    ResetUndo();
     if (std::find(Args().begin(), Args().end(), "--play") != Args().end())
         Play();
 }
@@ -106,6 +110,8 @@ void EditorApp::OnRender()
     if (!renderer.BeginFrame())
         return;
 
+    m_Scene.UpdateWorldTransforms();
+    m_PreviewVisible = false;
     m_ImGui->BeginFrame();
     bool tint = IsPlaying();
     if (tint) {
@@ -124,6 +130,8 @@ void EditorApp::OnRender()
     if (tint)
         ImGui::PopStyleColor(2);
     HandleShortcuts();
+    CommitUndoIfIdle();
+    m_Scene.UpdateWorldTransforms();
 
     if (m_SceneViewVisible) {
         SceneRenderOptions options;
@@ -140,6 +148,19 @@ void EditorApp::OnRender()
             float aspect = float(m_GameTarget->extent.width) / float(m_GameTarget->extent.height);
             renderer.DrawScene(*m_GameTarget, m_Scene, MakeCameraData(cam->transform, lens, aspect));
         }
+    }
+
+    if (m_PreviewVisible) {
+        // Orbit camera around the previewed model / prefab.
+        Transform cam;
+        cam.SetEulerAngles({m_PreviewPitch, m_PreviewYaw, 0.0f});
+        cam.position = m_PreviewCenter - cam.Forward() * m_PreviewDistance;
+        PerspectiveLens lens{40.0f, 0.01f, 5000.0f};
+        float aspect = float(m_PreviewTarget->extent.width) / float(m_PreviewTarget->extent.height);
+        m_PreviewScene.UpdateWorldTransforms();
+        SceneRenderOptions options;
+        options.drawUI = false;
+        renderer.DrawScene(*m_PreviewTarget, m_PreviewScene, MakeCameraData(cam, lens, aspect), options);
     }
 
     if (m_UIPanelVisible) {
@@ -253,6 +274,11 @@ void EditorApp::DrawMenuBar()
     }
 
     if (ImGui::BeginMenu("Edit")) {
+        if (ImGui::MenuItem("Undo", "Ctrl+Z", false, !m_UndoStack.empty() && !IsPlaying()))
+            Undo();
+        if (ImGui::MenuItem("Redo", "Ctrl+Y", false, !m_RedoStack.empty() && !IsPlaying()))
+            Redo();
+        ImGui::Separator();
         if (ImGui::MenuItem("Duplicate", "Ctrl+D", false, Selected() != nullptr))
             DuplicateSelected();
         if (ImGui::MenuItem("Delete", "Del", false, Selected() != nullptr))
@@ -432,6 +458,10 @@ void EditorApp::HandleShortcuts()
     }
     if (ctrl && ImGui::IsKeyPressed(ImGuiKey_D, false))
         DuplicateSelected();
+    if (ctrl && ImGui::IsKeyPressed(ImGuiKey_Z, false))
+        shift ? Redo() : Undo();
+    if (ctrl && ImGui::IsKeyPressed(ImGuiKey_Y, false))
+        Redo();
 
     bool sceneFocus = m_SceneViewHovered || m_SceneViewFocused ||
                       ImGui::IsWindowFocused(ImGuiFocusedFlags_AnyWindow) == false;
@@ -469,6 +499,7 @@ void EditorApp::NewScene()
     m_ScenePath.clear();
     m_Selected = 0;
     m_Dirty = false;
+    ResetUndo();
     Log::Info("New scene");
 }
 
@@ -524,6 +555,7 @@ bool EditorApp::OpenScene(const std::filesystem::path& path)
     m_ScenePath = path;
     m_Selected = 0;
     m_Dirty = false;
+    ResetUndo();
     Log::Info("Opened scene {}", RelativeToAssets(path));
     return true;
 }
@@ -554,8 +586,10 @@ bool EditorApp::SaveSceneAs(const std::filesystem::path& path)
 
 void EditorApp::MarkDirty()
 {
-    if (!IsPlaying())
+    if (!IsPlaying()) {
         m_Dirty = true;
+        m_UndoPending = true;
+    }
 }
 
 void EditorApp::RequestSceneChange(std::function<void()> action)
@@ -614,7 +648,12 @@ void EditorApp::TogglePause()
 
 Entity* EditorApp::Selected() { return m_Selected ? m_Scene.Get(m_Selected) : nullptr; }
 
-void EditorApp::Select(EntityID id) { m_Selected = id; }
+void EditorApp::Select(EntityID id)
+{
+    m_Selected = id;
+    if (id)
+        m_SelectedAsset.clear();
+}
 
 void EditorApp::DeleteSelected()
 {
@@ -645,11 +684,28 @@ void EditorApp::FocusSelected()
         m_FocusUIPanel = true;
         return;
     }
-    float radius = 0.5f;
-    if (e->meshRenderer)
-        if (const Mesh* mesh = GetRenderer().FindMesh(e->meshRenderer->mesh))
-            radius = glm::length((mesh->boundsMax - mesh->boundsMin) * e->transform.scale) * 0.5f;
-    m_EditorCamera.Focus(e->transform.position, radius);
+    m_Scene.UpdateWorldTransforms();
+    // Bounds of the whole subtree (models are usually a hierarchy of meshes).
+    glm::vec3 bmin(std::numeric_limits<float>::max()), bmax(-std::numeric_limits<float>::max());
+    for (EntityID id : m_Scene.Subtree(e->id)) {
+        const Entity* s = m_Scene.Get(id);
+        if (!s || !s->meshRenderer)
+            continue;
+        const Mesh* mesh = GetRenderer().FindMesh(s->meshRenderer->mesh);
+        if (!mesh)
+            continue;
+        for (int c = 0; c < 8; ++c) {
+            glm::vec3 corner((c & 1) ? mesh->boundsMax.x : mesh->boundsMin.x, (c & 2) ? mesh->boundsMax.y : mesh->boundsMin.y,
+                             (c & 4) ? mesh->boundsMax.z : mesh->boundsMin.z);
+            glm::vec3 w = s->world * glm::vec4(corner, 1.0f);
+            bmin = glm::min(bmin, w);
+            bmax = glm::max(bmax, w);
+        }
+    }
+    if (bmin.x > bmax.x)
+        m_EditorCamera.Focus(glm::vec3(e->world[3]), 0.5f);
+    else
+        m_EditorCamera.Focus((bmin + bmax) * 0.5f, glm::length(bmax - bmin) * 0.5f);
 }
 
 Entity& EditorApp::CreateObject(const std::string& name)
@@ -680,7 +736,7 @@ EntityID EditorApp::PickEntity(const glm::vec3& origin, const glm::vec3& directi
         if (!e->active || e->IsUIOnly())
             continue;
         glm::vec3 bmin(-0.35f), bmax(0.35f); // handle for objects without a mesh (lights, cameras)
-        glm::mat4 model = e->transform.Matrix();
+        glm::mat4 model = e->world;
         if (e->meshRenderer) {
             const Mesh* mesh = GetRenderer().FindMesh(e->meshRenderer->mesh);
             if (!mesh)
@@ -688,7 +744,7 @@ EntityID EditorApp::PickEntity(const glm::vec3& origin, const glm::vec3& directi
             bmin = mesh->boundsMin - 0.001f;
             bmax = mesh->boundsMax + 0.001f;
         } else {
-            model = glm::translate(glm::mat4(1.0f), e->transform.position);
+            model = glm::translate(glm::mat4(1.0f), glm::vec3(e->world[3]));
         }
         glm::mat4 inv = glm::inverse(model);
         glm::vec3 o = inv * glm::vec4(origin, 1.0f);

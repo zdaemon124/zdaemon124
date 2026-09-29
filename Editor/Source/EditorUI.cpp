@@ -119,6 +119,23 @@ void DrawIcon(ImDrawList* d, Icon icon, ImVec2 min, ImVec2 max, ImU32 col)
         d->AddCircleFilled({c.x + a * 0.45f, c.y - a * 0.3f}, a * 0.18f, IM_COL32(120, 200, 150, 255));
         break;
     }
+    case Icon::Model:
+    case Icon::Prefab: {
+        // Isometric cube: grey for models, blue for prefabs (like Unity).
+        float a = r * 0.72f;
+        bool prefab = icon == Icon::Prefab;
+        ImU32 top = prefab ? IM_COL32(120, 180, 250, 255) : IM_COL32(190, 190, 195, 255);
+        ImU32 left = prefab ? IM_COL32(70, 130, 210, 255) : IM_COL32(140, 140, 145, 255);
+        ImU32 right = prefab ? IM_COL32(45, 95, 170, 255) : IM_COL32(105, 105, 110, 255);
+        ImVec2 t(c.x, c.y - a), l(c.x - a, c.y - a * 0.45f), rr(c.x + a, c.y - a * 0.45f), m(c.x, c.y + a * 0.05f),
+            bl(c.x - a, c.y + a * 0.55f), br(c.x + a, c.y + a * 0.55f), b(c.x, c.y + a);
+        d->AddQuadFilled(t, rr, m, l, top);
+        d->AddQuadFilled(l, m, b, bl, left);
+        d->AddQuadFilled(m, rr, br, b, right);
+        if (!prefab)
+            d->AddQuad(t, rr, m, l, IM_COL32(60, 60, 60, 255), 1.0f);
+        break;
+    }
     case Icon::Empty:
         d->AddCircle(c, r * 0.45f, col, 12, t * 0.8f);
         break;

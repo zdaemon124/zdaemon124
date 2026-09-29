@@ -11,6 +11,18 @@ glm::quat QuatFromEuler(const glm::vec3& degrees)
     return glm::angleAxis(r.y, Axis::Up) * glm::angleAxis(r.x, Axis::Right) * glm::angleAxis(r.z, Axis::Forward);
 }
 
+void DecomposeWorld(const glm::mat4& m, glm::vec3& position, glm::quat& rotation, glm::vec3& scale)
+{
+    position = glm::vec3(m[3]);
+    glm::vec3 x(m[0]), y(m[1]), z(m[2]);
+    scale = {glm::length(x), glm::length(y), glm::length(z)};
+    if (glm::dot(glm::cross(x, y), z) < 0.0f)
+        scale.x = -scale.x; // mirrored
+    glm::mat3 r(x / (scale.x != 0.0f ? scale.x : 1.0f), y / (scale.y != 0.0f ? scale.y : 1.0f),
+                z / (scale.z != 0.0f ? scale.z : 1.0f));
+    rotation = glm::normalize(glm::quat_cast(r));
+}
+
 glm::mat4 Transform::Matrix() const
 {
     glm::mat4 m = glm::translate(glm::mat4(1.0f), position);

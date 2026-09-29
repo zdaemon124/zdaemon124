@@ -31,4 +31,7 @@ struct Transform {
 
 glm::quat QuatFromEuler(const glm::vec3& degrees);
 
+// Splits a TRS matrix (no shear) into position, rotation and scale.
+void DecomposeWorld(const glm::mat4& m, glm::vec3& position, glm::quat& rotation, glm::vec3& scale);
+
 } // namespace ze

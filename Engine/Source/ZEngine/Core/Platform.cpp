@@ -26,10 +26,16 @@ std::filesystem::path ExecutableDir()
 
 std::vector<char> ReadBinaryFile(const std::filesystem::path& path)
 {
+    std::error_code ec;
+    if (!std::filesystem::is_regular_file(path, ec))
+        return {};
     std::ifstream file(path, std::ios::binary | std::ios::ate);
     if (!file)
         return {};
-    std::vector<char> data(static_cast<size_t>(file.tellg()));
+    std::streamoff size = file.tellg();
+    if (size <= 0)
+        return {};
+    std::vector<char> data(static_cast<size_t>(size));
     file.seekg(0);
     file.read(data.data(), static_cast<std::streamsize>(data.size()));
     return data;

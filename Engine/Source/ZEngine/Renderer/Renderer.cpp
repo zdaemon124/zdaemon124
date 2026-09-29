@@ -11,6 +11,7 @@
 #include <glm/gtc/matrix_transform.hpp>
 
 #include <algorithm>
+#include <cmath>
 #include <cstring>
 
 namespace ze {
@@ -36,6 +37,17 @@ struct DrawPushConstants {
     glm::vec4 params;
 };
 static_assert(sizeof(DrawPushConstants) <= 128, "Push constants must fit the guaranteed 128 bytes");
+
+bool IsActiveInHierarchy(const Scene& scene, const Entity& e)
+{
+    const Entity* p = &e;
+    for (int guard = 0; p && guard < 1024; ++guard) {
+        if (!p->active)
+            return false;
+        p = p->parent ? scene.Get(p->parent) : nullptr;
+    }
+    return true;
+}
 
 constexpr VkShaderStageFlags kPushStages = VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT;
 const glm::vec4 kSelectionColor{1.0f, 0.55f, 0.1f, 1.0f};
@@ -75,6 +87,7 @@ Renderer::~Renderer()
         m_Context->DestroyImage(texture->image);
     m_Textures.clear();
     vkDestroySampler(device, m_LinearSampler, nullptr);
+    vkDestroySampler(device, m_RepeatSampler, nullptr);
     vkDestroyDescriptorPool(device, m_TexturePool, nullptr);
     vkDestroyDescriptorSetLayout(device, m_TextureSetLayout, nullptr);
     vkDestroyPipelineLayout(device, m_UIPipelineLayout, nullptr);
@@ -126,10 +139,68 @@ Mesh* Renderer::CreateMesh(const std::string& name, const MeshData& data)
     return m_Meshes.back().get();
 }
 
-Mesh* Renderer::FindMesh(const std::string& name) const
+Mesh* Renderer::FindMesh(const std::string& name)
 {
     auto it = m_MeshByName.find(name);
+    if (it != m_MeshByName.end())
+        return it->second;
+    // Model parts are loaded on first use.
+    size_t hash = name.rfind('#');
+    if (hash == std::string::npos)
+        return nullptr;
+    std::string model = name.substr(0, hash);
+    if (m_Models.contains(model) || m_FailedModels.contains(model) || !LoadModel(model))
+        return nullptr;
+    it = m_MeshByName.find(name);
     return it != m_MeshByName.end() ? it->second : nullptr;
+}
+
+const ModelAsset* Renderer::LoadModel(const std::string& assetPath)
+{
+    if (assetPath.empty())
+        return nullptr;
+    if (auto it = m_Models.find(assetPath); it != m_Models.end())
+        return it->second.get();
+    if (m_FailedModels.contains(assetPath))
+        return nullptr;
+    std::string error;
+    std::unique_ptr<ModelAsset> model = ModelImporter::Load(m_AssetRoot, assetPath, error);
+    if (!model) {
+        Log::Error("Cannot import model '{}': {}", assetPath, error);
+        m_FailedModels.insert(assetPath);
+        return nullptr;
+    }
+    for (size_t i = 0; i < model->partData.size(); ++i)
+        if (!model->partData[i].vertices.empty())
+            CreateMesh(model->PartMeshName(int(i)), model->partData[i]);
+    model->partData.clear(); // geometry now lives on the GPU
+    model->partData.shrink_to_fit();
+    Log::Info("Imported {} ({} nodes, {} meshes, {} triangles)", assetPath, model->nodes.size(), model->parts.size(),
+              model->totalTriangles);
+    const ModelAsset* result = model.get();
+    m_Models[assetPath] = std::move(model);
+    return result;
+}
+
+void Renderer::UnloadModel(const std::string& assetPath)
+{
+    m_FailedModels.erase(assetPath);
+    auto it = m_Models.find(assetPath);
+    if (it == m_Models.end())
+        return;
+    WaitIdle();
+    for (size_t i = 0; i < it->second->parts.size(); ++i) {
+        std::string name = it->second->PartMeshName(int(i));
+        auto mesh = m_MeshByName.find(name);
+        if (mesh == m_MeshByName.end())
+            continue;
+        Mesh* ptr = mesh->second;
+        m_Context->DestroyBuffer(ptr->vertexBuffer);
+        m_Context->DestroyBuffer(ptr->indexBuffer);
+        m_MeshByName.erase(mesh);
+        std::erase_if(m_Meshes, [ptr](const auto& m) { return m.get() == ptr; });
+    }
+    m_Models.erase(it);
 }
 
 std::vector<std::string> Renderer::MeshNames() const
@@ -274,9 +345,10 @@ void Renderer::CreatePipelines()
     pushRange.stageFlags = kPushStages;
     pushRange.size = sizeof(DrawPushConstants);
 
+    VkDescriptorSetLayout sceneSets[] = {m_FrameSetLayout, m_TextureSetLayout}; // set 1 = material texture
     VkPipelineLayoutCreateInfo layoutInfo{VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO};
-    layoutInfo.setLayoutCount = 1;
-    layoutInfo.pSetLayouts = &m_FrameSetLayout;
+    layoutInfo.setLayoutCount = 2;
+    layoutInfo.pSetLayouts = sceneSets;
     layoutInfo.pushConstantRangeCount = 1;
     layoutInfo.pPushConstantRanges = &pushRange;
     ZE_VK_CHECK(vkCreatePipelineLayout(device, &layoutInfo, nullptr, &m_PipelineLayout));
@@ -380,6 +452,15 @@ void Renderer::CreateTextureResources()
     samplerInfo.maxLod = VK_LOD_CLAMP_NONE;
     ZE_VK_CHECK(vkCreateSampler(device, &samplerInfo, nullptr, &m_LinearSampler));
 
+    VkPhysicalDeviceFeatures features;
+    vkGetPhysicalDeviceFeatures(m_Context->PhysicalDevice(), &features);
+    samplerInfo.addressModeU = VK_SAMPLER_ADDRESS_MODE_REPEAT;
+    samplerInfo.addressModeV = VK_SAMPLER_ADDRESS_MODE_REPEAT;
+    samplerInfo.addressModeW = VK_SAMPLER_ADDRESS_MODE_REPEAT;
+    samplerInfo.anisotropyEnable = features.samplerAnisotropy;
+    samplerInfo.maxAnisotropy = features.samplerAnisotropy ? std::min(8.0f, m_Context->Properties().limits.maxSamplerAnisotropy) : 1.0f;
+    ZE_VK_CHECK(vkCreateSampler(device, &samplerInfo, nullptr, &m_RepeatSampler));
+
     ImageData white;
     white.width = white.height = 2;
     white.pixels.assign(16, 255);
@@ -394,40 +475,109 @@ Texture* Renderer::CreateTexture(const std::string& name, const ImageData& image
     texture->name = name;
     texture->width = image.width;
     texture->height = image.height;
+    texture->mipLevels = 1 + uint32_t(std::floor(std::log2(float(std::max(image.width, image.height)))));
     VkExtent2D extent{image.width, image.height};
-    texture->image = m_Context->CreateImage(extent, VK_FORMAT_R8G8B8A8_UNORM,
-                                            VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT,
-                                            VK_IMAGE_ASPECT_COLOR_BIT);
+    texture->image = m_Context->CreateImage(
+        extent, VK_FORMAT_R8G8B8A8_UNORM,
+        VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT,
+        VK_IMAGE_ASPECT_COLOR_BIT, texture->mipLevels);
 
     VkDeviceSize size = VkDeviceSize(image.width) * image.height * 4;
     AllocatedBuffer staging = m_Context->CreateBuffer(size, VK_BUFFER_USAGE_TRANSFER_SRC_BIT, true);
     std::memcpy(staging.mapped, image.pixels.data(), size_t(size));
     vmaFlushAllocation(m_Context->Allocator(), staging.allocation, 0, VK_WHOLE_SIZE);
     m_Context->ImmediateSubmit([&](VkCommandBuffer cmd) {
-        TransitionImage(cmd, texture->image.image, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
+        VkImage img = texture->image.image;
+        TransitionImage(cmd, img, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
         VkBufferImageCopy region{};
         region.imageSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1};
         region.imageExtent = {image.width, image.height, 1};
-        vkCmdCopyBufferToImage(cmd, staging.buffer, texture->image.image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1,
-                               &region);
-        TransitionImage(cmd, texture->image.image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
-                        VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+        vkCmdCopyBufferToImage(cmd, staging.buffer, img, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &region);
+
+        // Mip chain by successive linear blits.
+        int32_t w = int32_t(image.width), h = int32_t(image.height);
+        for (uint32_t level = 1; level < texture->mipLevels; ++level) {
+            VkImageMemoryBarrier2 barrier{VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2};
+            barrier.srcStageMask = VK_PIPELINE_STAGE_2_TRANSFER_BIT;
+            barrier.srcAccessMask = VK_ACCESS_2_TRANSFER_WRITE_BIT;
+            barrier.dstStageMask = VK_PIPELINE_STAGE_2_TRANSFER_BIT;
+            barrier.dstAccessMask = VK_ACCESS_2_TRANSFER_READ_BIT;
+            barrier.oldLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
+            barrier.newLayout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
+            barrier.image = img;
+            barrier.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, level - 1, 1, 0, 1};
+            VkDependencyInfo dep{VK_STRUCTURE_TYPE_DEPENDENCY_INFO};
+            dep.imageMemoryBarrierCount = 1;
+            dep.pImageMemoryBarriers = &barrier;
+            vkCmdPipelineBarrier2(cmd, &dep);
+
+            int32_t nw = std::max(w / 2, 1), nh = std::max(h / 2, 1);
+            VkImageBlit2 blitRegion{VK_STRUCTURE_TYPE_IMAGE_BLIT_2};
+            blitRegion.srcSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, level - 1, 0, 1};
+            blitRegion.srcOffsets[1] = {w, h, 1};
+            blitRegion.dstSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, level, 0, 1};
+            blitRegion.dstOffsets[1] = {nw, nh, 1};
+            VkBlitImageInfo2 blit{VK_STRUCTURE_TYPE_BLIT_IMAGE_INFO_2};
+            blit.srcImage = img;
+            blit.srcImageLayout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
+            blit.dstImage = img;
+            blit.dstImageLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
+            blit.regionCount = 1;
+            blit.pRegions = &blitRegion;
+            blit.filter = VK_FILTER_LINEAR;
+            vkCmdBlitImage2(cmd, &blit);
+            w = nw;
+            h = nh;
+        }
+        // All levels to shader-read (the last one is still TRANSFER_DST, the others TRANSFER_SRC).
+        if (texture->mipLevels > 1) {
+            VkImageMemoryBarrier2 barriers[2]{};
+            for (auto& b2 : barriers) {
+                b2.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2;
+                b2.srcStageMask = VK_PIPELINE_STAGE_2_TRANSFER_BIT;
+                b2.srcAccessMask = VK_ACCESS_2_TRANSFER_WRITE_BIT | VK_ACCESS_2_TRANSFER_READ_BIT;
+                b2.dstStageMask = VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT;
+                b2.dstAccessMask = VK_ACCESS_2_SHADER_READ_BIT;
+                b2.newLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+                b2.image = img;
+            }
+            barriers[0].oldLayout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
+            barriers[0].subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, texture->mipLevels - 1, 0, 1};
+            barriers[1].oldLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
+            barriers[1].subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, texture->mipLevels - 1, 1, 0, 1};
+            VkDependencyInfo dep{VK_STRUCTURE_TYPE_DEPENDENCY_INFO};
+            dep.imageMemoryBarrierCount = 2;
+            dep.pImageMemoryBarriers = barriers;
+            vkCmdPipelineBarrier2(cmd, &dep);
+        } else {
+            TransitionImage(cmd, img, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+        }
     });
     m_Context->DestroyBuffer(staging);
 
+    VkDescriptorSetLayout layouts[2] = {m_TextureSetLayout, m_TextureSetLayout};
+    VkDescriptorSet sets[2]{};
     VkDescriptorSetAllocateInfo allocInfo{VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO};
     allocInfo.descriptorPool = m_TexturePool;
-    allocInfo.descriptorSetCount = 1;
-    allocInfo.pSetLayouts = &m_TextureSetLayout;
-    ZE_VK_CHECK(vkAllocateDescriptorSets(m_Context->Device(), &allocInfo, &texture->descriptor));
-    VkDescriptorImageInfo imageInfo{m_LinearSampler, texture->image.view, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL};
-    VkWriteDescriptorSet write{VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET};
-    write.dstSet = texture->descriptor;
-    write.dstBinding = 0;
-    write.descriptorCount = 1;
-    write.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-    write.pImageInfo = &imageInfo;
-    vkUpdateDescriptorSets(m_Context->Device(), 1, &write, 0, nullptr);
+    allocInfo.descriptorSetCount = 2;
+    allocInfo.pSetLayouts = layouts;
+    ZE_VK_CHECK(vkAllocateDescriptorSets(m_Context->Device(), &allocInfo, sets));
+    texture->descriptor = sets[0];
+    texture->descriptorRepeat = sets[1];
+    VkDescriptorImageInfo infos[2] = {
+        {m_LinearSampler, texture->image.view, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL},
+        {m_RepeatSampler, texture->image.view, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL},
+    };
+    VkWriteDescriptorSet writes[2]{};
+    for (int i = 0; i < 2; ++i) {
+        writes[i].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+        writes[i].dstSet = sets[i];
+        writes[i].dstBinding = 0;
+        writes[i].descriptorCount = 1;
+        writes[i].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+        writes[i].pImageInfo = &infos[i];
+    }
+    vkUpdateDescriptorSets(m_Context->Device(), 2, writes, 0, nullptr);
 
     Texture* result = texture.get();
     m_Textures[name] = std::move(texture);
@@ -468,9 +618,20 @@ void Renderer::UnloadTexture(const std::string& path)
 
 void Renderer::DestroyTexture(Texture& texture)
 {
-    if (texture.descriptor)
-        vkFreeDescriptorSets(m_Context->Device(), m_TexturePool, 1, &texture.descriptor);
+    VkDescriptorSet sets[] = {texture.descriptor, texture.descriptorRepeat};
+    vkFreeDescriptorSets(m_Context->Device(), m_TexturePool, 2, sets);
     m_Context->DestroyImage(texture.image);
+}
+
+void Renderer::BindMaterialTexture(VkCommandBuffer cmd, Texture* texture)
+{
+    if (!texture)
+        texture = m_WhiteTexture;
+    if (texture == m_BoundMaterialTexture)
+        return;
+    vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, m_PipelineLayout, 1, 1, &texture->descriptorRepeat, 0,
+                            nullptr);
+    m_BoundMaterialTexture = texture;
 }
 
 Font* Renderer::DefaultFont()
@@ -644,18 +805,22 @@ void Renderer::DrawScene(RenderTarget& target, const Scene& scene, const CameraD
 
         // Opaque geometry.
         vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, m_LitPipeline);
+        m_BoundMaterialTexture = nullptr;
+        BindMaterialTexture(cmd, m_WhiteTexture);
         for (const auto& entity : scene.Entities()) {
-            if (!entity->active || !entity->meshRenderer)
+            if (!entity->active || !entity->meshRenderer || !IsActiveInHierarchy(scene, *entity))
                 continue;
             const MeshRendererComponent& mr = *entity->meshRenderer;
             const Mesh* mesh = FindMesh(mr.mesh);
             if (!mesh)
                 continue;
-            glm::mat4 model = entity->transform.Matrix();
+            const glm::mat4& model = entity->world;
             if (options.frustumCulling) {
                 glm::vec3 center = model * glm::vec4((mesh->boundsMin + mesh->boundsMax) * 0.5f, 1.0f);
-                glm::vec3 s = glm::abs(entity->transform.scale);
-                float radius = glm::length((mesh->boundsMax - mesh->boundsMin) * 0.5f) * std::max({s.x, s.y, s.z});
+                float maxScale = std::sqrt(std::max({glm::dot(glm::vec3(model[0]), glm::vec3(model[0])),
+                                                     glm::dot(glm::vec3(model[1]), glm::vec3(model[1])),
+                                                     glm::dot(glm::vec3(model[2]), glm::vec3(model[2]))}));
+                float radius = glm::length((mesh->boundsMax - mesh->boundsMin) * 0.5f) * maxScale;
                 bool visible = true;
                 for (const glm::vec4& p : planes)
                     if (glm::dot(glm::vec3(p), center) + p.w < -radius) {
@@ -665,6 +830,7 @@ void Renderer::DrawScene(RenderTarget& target, const Scene& scene, const CameraD
                 if (!visible)
                     continue;
             }
+            BindMaterialTexture(cmd, mr.texture.empty() ? nullptr : LoadTexture(mr.texture));
             DrawMesh(cmd, *mesh, model, mr.color, mr.checkerScale);
         }
     }
@@ -685,7 +851,7 @@ void Renderer::DrawScene(RenderTarget& target, const Scene& scene, const CameraD
                 continue;
             if (selected && entity->meshRenderer)
                 if (const Mesh* mesh = FindMesh(entity->meshRenderer->mesh))
-                    DrawMesh(cmd, *mesh, entity->transform.Matrix(), kSelectionColor);
+                    DrawMesh(cmd, *mesh, entity->world, kSelectionColor);
             if (entity->collider)
                 DrawColliderWire(cmd, *entity, kColliderColor);
         }
@@ -833,9 +999,11 @@ void Renderer::DrawColliderWire(VkCommandBuffer cmd, const Entity& entity, const
 {
     // Mirrors the shape sizing used by PhysicsWorld.
     const ColliderComponent& c = *entity.collider;
-    const glm::vec3 s = glm::abs(entity.transform.scale);
-    glm::mat4 base = glm::translate(glm::mat4(1.0f), entity.transform.position) *
-                     glm::mat4_cast(entity.transform.rotation) *
+    glm::vec3 position, s;
+    glm::quat rotation;
+    DecomposeWorld(entity.world, position, rotation, s);
+    s = glm::abs(s);
+    glm::mat4 base = glm::translate(glm::mat4(1.0f), position) * glm::mat4_cast(rotation) *
                      glm::translate(glm::mat4(1.0f), c.center * s);
     switch (c.shape) {
     case ColliderShape::Box:
