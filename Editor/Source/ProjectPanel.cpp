@@ -4,11 +4,11 @@
 
 #include <imgui_internal.h>
 
-#include <ZEngine/Core/Platform.h>
+#include <IndeetsEngine/Core/Platform.h>
 
 #include <algorithm>
 
-namespace ze {
+namespace ie {
 
 namespace fs = std::filesystem;
 
@@ -126,7 +126,7 @@ void EditorApp::DrawProject()
                     SelectAsset(assetPath); // shows the asset in the Inspector
                 if (entry.directory && ImGui::BeginDragDropTarget()) {
                     // Drop a scene object on a folder to save it there as a prefab.
-                    if (const ImGuiPayload* payload = ImGui::AcceptDragDropPayload("ZE_ENTITY"))
+                    if (const ImGuiPayload* payload = ImGui::AcceptDragDropPayload("IE_ENTITY"))
                         CreatePrefab(*static_cast<const EntityID*>(payload->Data), entry.path);
                     ImGui::EndDragDropTarget();
                 }
@@ -140,7 +140,7 @@ void EditorApp::DrawProject()
                 bool isModel = !entry.directory && ModelImporter::IsModelFile(entry.path);
                 bool isPrefab = entry.path.extension() == ".zprefab";
                 if (!entry.directory && ImGui::BeginDragDropSource()) {
-                    ImGui::SetDragDropPayload("ZE_ASSET", assetPath.c_str(), assetPath.size() + 1);
+                    ImGui::SetDragDropPayload("IE_ASSET", assetPath.c_str(), assetPath.size() + 1);
                     ImGui::TextUnformatted(assetPath.c_str());
                     ImGui::EndDragDropSource();
                 }
@@ -223,7 +223,7 @@ void EditorApp::DrawProject()
 
         // Drop scene objects anywhere in the folder view to create prefabs.
         if (ImGui::BeginDragDropTargetCustom(ImGui::GetCurrentWindow()->InnerRect, ImGui::GetID("files-drop"))) {
-            if (const ImGuiPayload* payload = ImGui::AcceptDragDropPayload("ZE_ENTITY"))
+            if (const ImGuiPayload* payload = ImGui::AcceptDragDropPayload("IE_ENTITY"))
                 CreatePrefab(*static_cast<const EntityID*>(payload->Data), m_ProjectCurrentDir);
             ImGui::EndDragDropTarget();
         }
@@ -376,4 +376,4 @@ const std::vector<std::string>& EditorApp::ListImageAssets()
     return images;
 }
 
-} // namespace ze
+} // namespace ie

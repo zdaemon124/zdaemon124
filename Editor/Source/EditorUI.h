@@ -8,7 +8,7 @@
 #include <string>
 
 // Small immediate-mode helpers for a Unity-like look (icons, label/value property rows).
-namespace ze::UI {
+namespace ie::UI {
 
 enum class Icon { Move, Rotate, Scale, Play, Pause, Step, Folder, File, Scene, Cube, Light, Camera, Empty, Image, Model, Prefab };
 
@@ -29,4 +29,4 @@ bool PropertyText(const char* label, std::string& value);
 bool PropertyCombo(const char* label, int& index, const char* const* items, int count);
 void PropertyLabel(const char* label);
 
-} // namespace ze::UI
+} // namespace ie::UI

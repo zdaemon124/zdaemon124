@@ -2,7 +2,7 @@
 
 #include "EditorUI.h"
 
-namespace ze {
+namespace ie {
 
 void EditorApp::DrawConsole()
 {
@@ -65,4 +65,4 @@ void EditorApp::DrawConsole()
     ImGui::End();
 }
 
-} // namespace ze
+} // namespace ie

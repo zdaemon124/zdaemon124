@@ -2,7 +2,7 @@
 
 #include "EditorUI.h"
 
-#include <ZEngine/Core/Platform.h>
+#include <IndeetsEngine/Core/Platform.h>
 
 #include <imgui_internal.h>
 
@@ -13,7 +13,7 @@
 #include <format>
 #include <limits>
 
-namespace ze {
+namespace ie {
 
 namespace {
 constexpr const char* kSceneExtension = ".zscene";
@@ -186,7 +186,7 @@ void EditorApp::OnRender()
 void EditorApp::UpdateTitle()
 {
     std::string sceneName = m_ScenePath.empty() ? "Untitled" : RelativeToAssets(m_ScenePath);
-    std::string title = std::format("ZEngine Editor - {}{}{}  |  {:.0f} FPS", sceneName, m_Dirty ? "*" : "",
+    std::string title = std::format("IndeetsEngine Editor - {}{}{}  |  {:.0f} FPS", sceneName, m_Dirty ? "*" : "",
                                     IsPlaying() ? "  [PLAY MODE]" : "", Fps());
     static std::string last;
     if (title != last) {
@@ -309,7 +309,7 @@ void EditorApp::DrawMenuBar()
     }
 
     if (ImGui::BeginMenu("Help")) {
-        if (ImGui::MenuItem("About ZEngine"))
+        if (ImGui::MenuItem("About IndeetsEngine"))
             m_OpenAboutModal = true;
         ImGui::EndMenu();
     }
@@ -354,7 +354,7 @@ void EditorApp::DrawModals()
         m_OpenSaveAsModal = false;
     }
     if (m_OpenAboutModal) {
-        ImGui::OpenPopup("About ZEngine");
+        ImGui::OpenPopup("About IndeetsEngine");
         m_OpenAboutModal = false;
     }
 
@@ -423,8 +423,8 @@ void EditorApp::DrawModals()
     }
 
     ImGui::SetNextWindowPos(center, ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
-    if (ImGui::BeginPopupModal("About ZEngine", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
-        ImGui::TextUnformatted("ZEngine Editor 0.2");
+    if (ImGui::BeginPopupModal("About IndeetsEngine", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
+        ImGui::TextUnformatted("IndeetsEngine Editor 0.3");
         ImGui::Separator();
         ImGui::TextUnformatted("Vulkan 1.3 renderer, Jolt Physics, Dear ImGui.");
         ImGui::TextDisabled("Scene view: RMB + WASD/QE fly, MMB pan, wheel zoom, F frame selected.");
@@ -776,4 +776,4 @@ EntityID EditorApp::PickEntity(const glm::vec3& origin, const glm::vec3& directi
     return best;
 }
 
-} // namespace ze
+} // namespace ie

@@ -1,8 +1,8 @@
 #pragma once
 
-#include <ZEngine/ZEngine.h>
-#include <ZEngine/Scene/UILayout.h>
-#include <ZEngine/UI/ImGuiLayer.h>
+#include <IndeetsEngine/IndeetsEngine.h>
+#include <IndeetsEngine/Scene/UILayout.h>
+#include <IndeetsEngine/UI/ImGuiLayer.h>
 
 #include <ImGuizmo.h>
 
@@ -13,7 +13,7 @@
 #include <unordered_map>
 #include <vector>
 
-namespace ze {
+namespace ie {
 
 enum class PlayState { Edit, Playing, Paused };
 
@@ -237,4 +237,4 @@ private:
     bool m_LayoutReset = false;
 };
 
-} // namespace ze
+} // namespace ie

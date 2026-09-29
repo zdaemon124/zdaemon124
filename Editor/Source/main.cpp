@@ -2,11 +2,11 @@
 
 int main(int argc, char** argv)
 {
-    ze::ApplicationDesc desc;
-    desc.window.title = "ZEngine Editor";
+    ie::ApplicationDesc desc;
+    desc.window.title = "IndeetsEngine Editor";
     desc.window.width = 1600;
     desc.window.height = 900;
-    ze::EditorApp app(desc, argc, argv);
+    ie::EditorApp app(desc, argc, argv);
     app.Run();
     return 0;
 }

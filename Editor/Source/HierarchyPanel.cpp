@@ -7,7 +7,7 @@
 #include <functional>
 #include <unordered_map>
 
-namespace ze {
+namespace ie {
 
 namespace {
 
@@ -114,11 +114,11 @@ void EditorApp::DrawHierarchy()
     auto acceptDrops = [&](EntityID target) {
         if (!ImGui::BeginDragDropTarget())
             return;
-        if (const ImGuiPayload* payload = ImGui::AcceptDragDropPayload("ZE_ENTITY")) {
+        if (const ImGuiPayload* payload = ImGui::AcceptDragDropPayload("IE_ENTITY")) {
             reparent = {*static_cast<const EntityID*>(payload->Data), target};
             reparentRequested = true;
         }
-        if (const ImGuiPayload* payload = ImGui::AcceptDragDropPayload("ZE_ASSET"))
+        if (const ImGuiPayload* payload = ImGui::AcceptDragDropPayload("IE_ASSET"))
             instantiate = {static_cast<const char*>(payload->Data), target};
         ImGui::EndDragDropTarget();
     };
@@ -169,7 +169,7 @@ void EditorApp::DrawHierarchy()
             FocusSelected();
 
         if (ImGui::BeginDragDropSource()) {
-            ImGui::SetDragDropPayload("ZE_ENTITY", &e.id, sizeof(EntityID));
+            ImGui::SetDragDropPayload("IE_ENTITY", &e.id, sizeof(EntityID));
             ImGui::Text("%s", e.name.c_str());
             ImGui::TextDisabled("Drop on an object to make it a child, on the Project panel to create a prefab");
             ImGui::EndDragDropSource();
@@ -322,4 +322,4 @@ void EditorApp::DrawHierarchy()
     }
 }
 
-} // namespace ze
+} // namespace ie

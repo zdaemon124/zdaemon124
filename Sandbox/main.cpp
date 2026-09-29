@@ -1,9 +1,9 @@
 // Runtime demo without the editor: primitives with physics.
 // Controls: hold RMB + WASD/QE to fly (Shift = faster), MMB drag to pan, wheel to zoom,
 //           Space shoots a ball, R restarts, Esc quits.
-#include <ZEngine/ZEngine.h>
+#include <IndeetsEngine/IndeetsEngine.h>
 
-using namespace ze;
+using namespace ie;
 
 class SandboxApp final : public Application {
 public:
@@ -92,7 +92,7 @@ private:
 int main(int argc, char** argv)
 {
     ApplicationDesc desc;
-    desc.window.title = "ZEngine Sandbox";
+    desc.window.title = "IndeetsEngine Sandbox";
     SandboxApp app(desc, argc, argv);
     app.Run();
     return 0;

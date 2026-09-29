@@ -1,4 +1,4 @@
-# ZEngine
+# IndeetsEngine
 
 Игровой движок в стиле Unity: ядро на C++20 и Vulkan 1.3, физика Jolt, редактор на Dear ImGui. Скрипты на C# в разработке.
 
@@ -6,7 +6,7 @@
 
 ## Возможности
 
-**Редактор** (`ZEngine-Editor`)
+**Редактор** (`IndeetsEngine-Editor`)
 - Панели как в Unity: **Hierarchy**, **Inspector**, **Scene**, **Game**, **Project** (проводник по ассетам) и **Console**. Панели можно перетаскивать и стыковать, раскладка сохраняется (Window → Reset Layout сбрасывает её).
 - Создание объектов: меню **GameObject** → Create Empty / 3D Object (Cube, Sphere, Capsule, Cylinder, Plane, Quad) / Light / Camera, кнопка «+» или ПКМ в Hierarchy.
 - Inspector: имя, активность, Transform (позиция, поворот в градусах, масштаб), компоненты **Mesh Renderer**, **Box/Sphere/Capsule Collider**, **Rigidbody**, **Light**, **Camera**; кнопка **Add Component**, удаление компонента крестиком. Без выделения показываются настройки сцены (ambient, гравитация).
@@ -58,7 +58,7 @@
 
 ## Готовая сборка
 
-Скачайте архив из [Releases](https://github.com/zdaemon124/zdaemon124/releases), распакуйте и запустите `ZEngine-Editor.exe`.
+Скачайте архив из [Releases](https://github.com/zdaemon124/zdaemon124/releases), распакуйте и запустите `IndeetsEngine-Editor.exe`.
 
 ## Сборка из исходников (Windows 11)
 
@@ -69,19 +69,19 @@
 2. В «Developer PowerShell for VS»:
 
    ```powershell
-   git clone https://github.com/zdaemon124/zdaemon124.git ZEngine
-   cd ZEngine
+   git clone https://github.com/zdaemon124/zdaemon124.git IndeetsEngine
+   cd IndeetsEngine
    cmake --preset windows
    cmake --build --preset windows-debug
-   .\build\bin\Debug\ZEngine-Editor.exe
+   .\build\bin\Debug\IndeetsEngine-Editor.exe
    ```
 
-   Или откройте `build\ZEngine.sln` (`.slnx` для VS 2026) и нажмите F5 — стартовый проект Editor.
+   Или откройте `build\IndeetsEngine.sln` (`.slnx` для VS 2026) и нажмите F5 — стартовый проект Editor.
 
 ## Структура
 
 ```
-Engine/Source/ZEngine/
+Engine/Source/IndeetsEngine/
   Core/      Application, Window, Input, Log, Platform
   Renderer/  VulkanContext, Swapchain, Pipeline, Renderer (render targets), Mesh
   Scene/     Scene, Entity, компоненты, Transform, Camera, Primitives, SceneSerializer

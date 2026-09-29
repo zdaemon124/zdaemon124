@@ -1,21 +1,21 @@
 # GLSL -> SPIR-V compilation. Uses glslc from the Vulkan SDK, falls back to glslangValidator.
-find_program(ZE_GLSLC glslc HINTS "$ENV{VULKAN_SDK}/Bin" "$ENV{VULKAN_SDK}/bin")
-find_program(ZE_GLSLANG glslangValidator HINTS "$ENV{VULKAN_SDK}/Bin" "$ENV{VULKAN_SDK}/bin")
-if(NOT ZE_GLSLC AND NOT ZE_GLSLANG)
+find_program(IE_GLSLC glslc HINTS "$ENV{VULKAN_SDK}/Bin" "$ENV{VULKAN_SDK}/bin")
+find_program(IE_GLSLANG glslangValidator HINTS "$ENV{VULKAN_SDK}/Bin" "$ENV{VULKAN_SDK}/bin")
+if(NOT IE_GLSLC AND NOT IE_GLSLANG)
     message(FATAL_ERROR "No shader compiler found. Install the Vulkan SDK: https://vulkan.lunarg.com/sdk/home")
 endif()
 
-# ze_compile_shaders(<target> <output dir> SOURCES <shader files...> [INCLUDES <included files...>])
-function(ze_compile_shaders TARGET OUT_DIR)
+# ie_compile_shaders(<target> <output dir> SOURCES <shader files...> [INCLUDES <included files...>])
+function(ie_compile_shaders TARGET OUT_DIR)
     cmake_parse_arguments(ARG "" "" "SOURCES;INCLUDES" ${ARGN})
     set(SPV_FILES)
     foreach(SRC ${ARG_SOURCES})
         get_filename_component(NAME ${SRC} NAME)
         set(SPV ${OUT_DIR}/${NAME}.spv)
-        if(ZE_GLSLC)
-            set(CMD ${ZE_GLSLC} --target-env=vulkan1.3 -O -o ${SPV} ${SRC})
+        if(IE_GLSLC)
+            set(CMD ${IE_GLSLC} --target-env=vulkan1.3 -O -o ${SPV} ${SRC})
         else()
-            set(CMD ${ZE_GLSLANG} -V --target-env vulkan1.3 -o ${SPV} ${SRC})
+            set(CMD ${IE_GLSLANG} -V --target-env vulkan1.3 -o ${SPV} ${SRC})
         endif()
         add_custom_command(
             OUTPUT ${SPV}
@@ -31,9 +31,9 @@ function(ze_compile_shaders TARGET OUT_DIR)
 endfunction()
 
 # Copies compiled engine shaders next to an executable (<exe dir>/shaders).
-function(ze_deploy_shaders EXE_TARGET)
-    add_dependencies(${EXE_TARGET} ZEngineShaders)
+function(ie_deploy_shaders EXE_TARGET)
+    add_dependencies(${EXE_TARGET} IndeetsEngineShaders)
     add_custom_command(TARGET ${EXE_TARGET} POST_BUILD
-        COMMAND ${CMAKE_COMMAND} -E copy_directory ${ZE_SHADER_OUTPUT_DIR} $<TARGET_FILE_DIR:${EXE_TARGET}>/shaders
+        COMMAND ${CMAKE_COMMAND} -E copy_directory ${IE_SHADER_OUTPUT_DIR} $<TARGET_FILE_DIR:${EXE_TARGET}>/shaders
         VERBATIM)
 endfunction()

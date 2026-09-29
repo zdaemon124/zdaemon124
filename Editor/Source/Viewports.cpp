@@ -7,10 +7,10 @@
 #include <glm/gtc/type_ptr.hpp>
 #include <glm/gtx/matrix_decompose.hpp>
 
-#include <ZEngine/Core/Platform.h>
-#include <ZEngine/Scene/UILayout.h>
+#include <IndeetsEngine/Core/Platform.h>
+#include <IndeetsEngine/Scene/UILayout.h>
 
-namespace ze {
+namespace ie {
 
 namespace {
 
@@ -59,7 +59,7 @@ void EditorApp::DrawSceneView()
 
     // Drop a model or prefab from the Project panel: place it where the cursor hits the ground plane.
     if (ImGui::BeginDragDropTarget()) {
-        if (const ImGuiPayload* payload = ImGui::AcceptDragDropPayload("ZE_ASSET")) {
+        if (const ImGuiPayload* payload = ImGui::AcceptDragDropPayload("IE_ASSET")) {
             std::string asset(static_cast<const char*>(payload->Data));
             ImVec2 mouse = ImGui::GetMousePos();
             float aspectDrop = size.x / std::max(size.y, 1.0f);
@@ -224,7 +224,7 @@ void EditorApp::DrawGameView()
 
         // Drop an image from the Project panel to create a UI Image at that spot.
         if (ImGui::BeginDragDropTarget()) {
-            if (const ImGuiPayload* payload = ImGui::AcceptDragDropPayload("ZE_ASSET")) {
+            if (const ImGuiPayload* payload = ImGui::AcceptDragDropPayload("IE_ASSET")) {
                 std::string asset(static_cast<const char*>(payload->Data));
                 if (ImageIO::IsImageFile(Platform::Utf8ToPath(asset))) {
                     glm::vec2 screen(size.x, size.y);
@@ -284,4 +284,4 @@ void EditorApp::DrawGameViewUIOverlay(ImVec2 origin, ImVec2 size, bool hovered)
                                         IM_COL32(255, 140, 25, 255), 0.0f, 1.5f);
 }
 
-} // namespace ze
+} // namespace ie

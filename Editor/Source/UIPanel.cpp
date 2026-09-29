@@ -8,7 +8,7 @@
 #include <algorithm>
 #include <cmath>
 
-namespace ze {
+namespace ie {
 
 namespace {
 
@@ -184,7 +184,7 @@ void EditorApp::DrawUILayers()
 
     auto acceptDrop = [&](EntityID target, bool screen) {
         if (ImGui::BeginDragDropTarget()) {
-            if (const ImGuiPayload* payload = ImGui::AcceptDragDropPayload("ZE_ENTITY")) {
+            if (const ImGuiPayload* payload = ImGui::AcceptDragDropPayload("IE_ENTITY")) {
                 dragged = *static_cast<const EntityID*>(payload->Data);
                 dropTarget = target;
                 dropToScreen = screen;
@@ -233,7 +233,7 @@ void EditorApp::DrawUILayers()
                 if (ImGui::IsItemClicked() && !ImGui::IsItemToggledOpen())
                     Select(e->id);
                 if (ImGui::BeginDragDropSource()) {
-                    ImGui::SetDragDropPayload("ZE_ENTITY", &e->id, sizeof(EntityID));
+                    ImGui::SetDragDropPayload("IE_ENTITY", &e->id, sizeof(EntityID));
                     ImGui::Text("Move '%s'", e->name.c_str());
                     ImGui::EndDragDropSource();
                 }
@@ -515,4 +515,4 @@ void EditorApp::DrawUICanvas()
     draw->PopClipRect();
 }
 
-} // namespace ze
+} // namespace ie

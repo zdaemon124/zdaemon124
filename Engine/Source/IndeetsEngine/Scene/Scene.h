@@ -1,0 +1,99 @@
+#pragma once
+
+#include "IndeetsEngine/Scene/Components.h"
+#include "IndeetsEngine/Scene/Primitives.h"
+#include "IndeetsEngine/Scene/Transform.h"
+
+#include <cstdint>
+#include <memory>
+#include <optional>
+#include <string>
+#include <vector>
+
+namespace ie {
+
+using EntityID = uint32_t;
+inline constexpr EntityID kInvalidEntity = 0;
+
+// Unity's GameObject: a name, a transform and optional components.
+struct Entity {
+    EntityID id = kInvalidEntity;
+    std::string name;
+    bool active = true;
+    EntityID parent = kInvalidEntity; // 3D parent: `transform` is relative to it
+    std::string prefab;               // prefab asset this entity is the root instance of ("" = none)
+    Transform transform;              // local transform
+    glm::mat4 world{1.0f};            // world matrix (runtime, see Scene::UpdateWorldTransforms)
+
+    std::optional<MeshRendererComponent> meshRenderer;
+    std::optional<ColliderComponent> collider;
+    std::optional<RigidbodyComponent> rigidbody;
+    std::optional<LightComponent> light;
+    std::optional<CameraComponent> camera;
+    std::optional<RectTransform> rectTransform; // present on every screen-space UI element
+    std::optional<UIImageComponent> uiImage;
+    std::optional<UITextComponent> uiText;
+
+    bool IsUI() const { return rectTransform.has_value(); }
+    // Screen-space UI element with no 3D presence (its Transform is unused).
+    bool IsUIOnly() const { return rectTransform && !meshRenderer && !collider && !rigidbody && !light && !camera; }
+};
+
+struct SceneSettings {
+    glm::vec3 skyAmbient{0.45f, 0.52f, 0.62f};    // sRGB
+    glm::vec3 groundAmbient{0.32f, 0.3f, 0.28f};  // sRGB
+    float ambientIntensity = 1.0f;
+    glm::vec3 gravity{0.0f, -9.81f, 0.0f};
+    glm::vec2 uiReferenceResolution{1920.0f, 1080.0f};
+    UIScaleMode uiScaleMode = UIScaleMode::ScaleWithScreenSize;
+    float uiMatchWidthOrHeight = 1.0f; // 0 = match width, 1 = match height (like Unity's Canvas Scaler)
+};
+
+class Scene {
+public:
+    Entity& CreateEntity(const std::string& name, EntityID id = kInvalidEntity);
+    // GameObject.CreatePrimitive: mesh renderer + matching collider.
+    Entity& CreatePrimitive(PrimitiveType type, const std::string& name = {});
+    // Copies an entity with all its children (3D and UI).
+    Entity& Duplicate(EntityID id);
+    // Destroys an entity with all its children.
+    void DestroyEntity(EntityID id);
+    void Clear();
+
+    Entity* Get(EntityID id);
+    const Entity* Get(EntityID id) const;
+    Entity* Find(const std::string& name);
+    int IndexOf(EntityID id) const;
+    // True if `ancestor` is `id` or one of its UI parents.
+    bool IsUIDescendant(EntityID id, EntityID ancestor) const;
+
+    // ---- 3D hierarchy
+    // True if `ancestor` is `id` or one of its 3D parents.
+    bool IsDescendant(EntityID id, EntityID ancestor) const;
+    std::vector<EntityID> Children(EntityID id) const;
+    // All entities in the subtree of `root` (root first), following both 3D and UI parents.
+    std::vector<EntityID> Subtree(EntityID root) const;
+    // Re-parents keeping the world transform when `keepWorld` is set. Returns false if it would create a cycle.
+    bool SetParent(EntityID child, EntityID parent, bool keepWorld = true);
+    // Recomputes Entity::world for every entity (call once per frame before rendering / physics).
+    void UpdateWorldTransforms();
+    glm::mat4 ParentWorld(const Entity& entity) const;
+    // Sets the local transform so that the entity ends up at the given world matrix.
+    void SetWorldMatrix(Entity& entity, const glm::mat4& world);
+    void Move(EntityID id, int newIndex);
+
+    // First active entity with a light / camera component.
+    const Entity* MainLight() const;
+    const Entity* MainCamera() const;
+
+    std::vector<std::unique_ptr<Entity>>& Entities() { return m_Entities; }
+    const std::vector<std::unique_ptr<Entity>>& Entities() const { return m_Entities; }
+
+    SceneSettings settings;
+
+private:
+    std::vector<std::unique_ptr<Entity>> m_Entities;
+    EntityID m_NextID = 1;
+};
+
+} // namespace ie

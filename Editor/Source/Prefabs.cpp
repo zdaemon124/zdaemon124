@@ -1,11 +1,11 @@
 // Prefabs, asset instantiation and undo/redo.
 #include "EditorApp.h"
 
-#include <ZEngine/Core/Platform.h>
+#include <IndeetsEngine/Core/Platform.h>
 
 #include <ImGuizmo.h>
 
-namespace ze {
+namespace ie {
 
 namespace fs = std::filesystem;
 
@@ -203,4 +203,4 @@ void EditorApp::Redo()
         m_Selected = 0;
 }
 
-} // namespace ze
+} // namespace ie

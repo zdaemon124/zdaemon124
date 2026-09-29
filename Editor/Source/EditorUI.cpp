@@ -4,7 +4,7 @@
 
 #include <cmath>
 
-namespace ze::UI {
+namespace ie::UI {
 
 void Tooltip(const char* text)
 {
@@ -264,4 +264,4 @@ bool PropertyCombo(const char* label, int& index, const char* const* items, int 
     return changed;
 }
 
-} // namespace ze::UI
+} // namespace ie::UI

@@ -2,12 +2,12 @@
 
 #include "EditorUI.h"
 
-#include <ZEngine/Core/Platform.h>
+#include <IndeetsEngine/Core/Platform.h>
 
 #include <algorithm>
 #include <optional>
 
-namespace ze {
+namespace ie {
 
 namespace {
 
@@ -481,7 +481,7 @@ bool EditorApp::DrawSpriteField(std::string& sprite)
         ImGui::OpenPopup("SpritePicker");
     UI::Tooltip("Click to choose, or drag an image from the Project panel here");
     if (ImGui::BeginDragDropTarget()) {
-        if (const ImGuiPayload* payload = ImGui::AcceptDragDropPayload("ZE_ASSET")) {
+        if (const ImGuiPayload* payload = ImGui::AcceptDragDropPayload("IE_ASSET")) {
             std::string asset(static_cast<const char*>(payload->Data));
             if (ImageIO::IsImageFile(Platform::Utf8ToPath(asset))) {
                 sprite = asset;
@@ -543,4 +543,4 @@ void EditorApp::DrawSceneSettings()
         MarkDirty();
 }
 
-} // namespace ze
+} // namespace ie

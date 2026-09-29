@@ -1,0 +1,50 @@
+#pragma once
+
+#include <cstdint>
+#include <filesystem>
+#include <functional>
+#include <string>
+#include <vector>
+
+struct GLFWwindow;
+
+namespace ie {
+
+struct WindowDesc {
+    std::string title = "IndeetsEngine";
+    uint32_t width = 1600;
+    uint32_t height = 900;
+};
+
+class Window {
+public:
+    explicit Window(const WindowDesc& desc);
+    ~Window();
+
+    Window(const Window&) = delete;
+    Window& operator=(const Window&) = delete;
+
+    bool ShouldClose() const;
+    void RequestClose();
+    void PollEvents();
+    void WaitEvents();
+    void SetTitle(const std::string& title);
+
+    // Size of the drawable area in pixels (0 when minimized).
+    void GetFramebufferSize(uint32_t& width, uint32_t& height) const;
+    bool IsMinimized() const;
+
+    // Returns true once after the framebuffer was resized.
+    bool ConsumeResized();
+
+    GLFWwindow* Handle() const { return m_Window; }
+
+    // Called when files are dragged from the OS onto the window.
+    std::function<void(const std::vector<std::filesystem::path>&)> onFileDrop;
+
+private:
+    GLFWwindow* m_Window = nullptr;
+    bool m_Resized = false;
+};
+
+} // namespace ie

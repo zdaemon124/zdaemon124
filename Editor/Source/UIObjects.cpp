@@ -1,11 +1,11 @@
 #include "EditorApp.h"
 
-#include <ZEngine/Core/Platform.h>
+#include <IndeetsEngine/Core/Platform.h>
 
 #include <algorithm>
 #include <cmath>
 
-namespace ze {
+namespace ie {
 
 namespace fs = std::filesystem;
 
@@ -234,4 +234,4 @@ void EditorApp::CreateSampleHUD()
     Log::Info("Created sample HUD (open the UI panel to edit it)");
 }
 
-} // namespace ze
+} // namespace ie

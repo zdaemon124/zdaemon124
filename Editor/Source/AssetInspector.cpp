@@ -3,13 +3,13 @@
 
 #include "EditorUI.h"
 
-#include <ZEngine/Core/Platform.h>
+#include <IndeetsEngine/Core/Platform.h>
 
 #include <algorithm>
 #include <cmath>
 #include <functional>
 
-namespace ze {
+namespace ie {
 
 namespace fs = std::filesystem;
 
@@ -308,4 +308,4 @@ void EditorApp::DrawAssetInspector()
     }
 }
 
-} // namespace ze
+} // namespace ie
