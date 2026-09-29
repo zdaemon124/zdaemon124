@@ -11,6 +11,7 @@
 
 #include <algorithm>
 #include <cstring>
+#include <unordered_map>
 
 namespace ie {
 namespace {
@@ -63,6 +64,15 @@ struct ScriptNativeApi {
     void (*InputSetCursorLocked)(int locked);
     void (*ScreenSize)(float* out);
     uint32_t (*MainCamera)();
+
+    const char* (*EntityGetTag)(uint32_t id);
+    void (*EntitySetTag)(uint32_t id, const char* tag);
+    int (*EntityGetLayer)(uint32_t id);
+    void (*EntitySetLayer)(uint32_t id, int layer);
+    const char* (*EntityGetScripts)(uint32_t id);
+    const char* (*AssetFindResources)(const char* path, int all);
+    const char* (*AssetDescribe)(const char* assetPath);
+    uint32_t (*AssetPrefabTemplate)(const char* assetPath);
 };
 
 // Built-in component kinds (IndeetsEngine.Interop.BuiltinKind).
@@ -103,11 +113,31 @@ PhysicsWorld* g_Physics = nullptr;
 std::string g_Result;
 thread_local std::string t_String;
 
+ScriptAssetProvider g_Assets;
+// Prefab assets scripts reference, materialized once per play session below a hidden, inactive
+// container (like Unity's prefab assets: never awake, found by nothing, cloned by Instantiate).
+EntityID g_TemplateRoot = 0;
+std::unordered_map<std::string, EntityID> g_Templates;
+
 glm::vec2 g_ViewportOrigin{0.0f};
 glm::vec2 g_ViewportSize{1280.0f, 720.0f};
 bool g_InputEnabled = true;
 
 Entity* E(uint32_t id) { return g_Scene ? g_Scene->Get(id) : nullptr; }
+
+// Entities below the prefab asset container are assets, not scene objects.
+bool IsAssetEntity(const Entity& e)
+{
+    if (!g_TemplateRoot)
+        return false;
+    const Entity* current = &e;
+    for (int guard = 0; current && guard < 1024; ++guard) {
+        if (current->id == g_TemplateRoot)
+            return true;
+        current = current->parent ? E(current->parent) : nullptr;
+    }
+    return false;
+}
 
 // World matrix computed from the local transforms up the chain (never stale mid-frame).
 glm::mat4 WorldMatrix(const Entity& e)
@@ -284,8 +314,10 @@ uint32_t ApiEntityFind(const char* name)
     // GameObject.Find also accepts "Parent/Child" paths.
     std::string path = name;
     if (path.find('/') == std::string::npos) {
-        Entity* e = g_Scene->Find(path);
-        return e ? e->id : 0;
+        for (const auto& e : g_Scene->Entities())
+            if (e->name == path && !IsAssetEntity(*e))
+                return e->id;
+        return 0;
     }
     std::vector<std::string> parts;
     size_t start = path[0] == '/' ? 1 : 0;
@@ -297,7 +329,7 @@ uint32_t ApiEntityFind(const char* name)
         start = end + 1;
     }
     for (const auto& root : g_Scene->Entities()) {
-        if (root->parent != kInvalidEntity || root->name != parts[0])
+        if (root->parent != kInvalidEntity || root->name != parts[0] || root->id == g_TemplateRoot)
             continue;
         EntityID current = root->id;
         for (size_t i = 1; i < parts.size() && current; ++i) {
@@ -355,7 +387,7 @@ uint32_t ApiEntityGetParent(uint32_t id)
     if (!e)
         return 0;
     if (e->parent)
-        return e->parent;
+        return e->parent == g_TemplateRoot ? 0 : e->parent; // prefab assets have no parent
     return e->rectTransform ? e->rectTransform->parent : 0;
 }
 
@@ -387,11 +419,14 @@ int ApiEntityGetAll(uint32_t* out, int capacity)
 {
     if (!g_Scene)
         return 0;
-    const auto& entities = g_Scene->Entities();
-    int n = static_cast<int>(entities.size());
-    if (out)
-        for (int i = 0; i < n && i < capacity; ++i)
-            out[i] = entities[static_cast<size_t>(i)]->id;
+    int n = 0;
+    for (const auto& e : g_Scene->Entities()) {
+        if (IsAssetEntity(*e))
+            continue;
+        if (out && n < capacity)
+            out[n] = e->id;
+        ++n;
+    }
     return n;
 }
 
@@ -741,6 +776,87 @@ uint32_t ApiMainCamera()
     return camera ? camera->id : 0;
 }
 
+const char* ApiEntityGetTag(uint32_t id)
+{
+    const Entity* e = E(id);
+    t_String = e ? e->tag : "Untagged";
+    return t_String.c_str();
+}
+
+void ApiEntitySetTag(uint32_t id, const char* tag)
+{
+    if (Entity* e = E(id))
+        e->tag = tag && *tag ? tag : "Untagged";
+}
+
+int ApiEntityGetLayer(uint32_t id)
+{
+    const Entity* e = E(id);
+    return e ? e->layer : 0;
+}
+
+void ApiEntitySetLayer(uint32_t id, int layer)
+{
+    if (Entity* e = E(id))
+        e->layer = std::clamp(layer, 0, 31);
+}
+
+// Scripts stored on an entity (not the live instances): [{class, enabled, fields}].
+const char* ApiEntityGetScripts(uint32_t id)
+{
+    json scripts = json::array();
+    if (const Entity* e = E(id))
+        for (const ScriptComponent& s : e->scripts) {
+            json fields = json::parse(s.fields, nullptr, false);
+            scripts.push_back({{"class", s.className}, {"enabled", s.enabled},
+                               {"fields", fields.is_object() ? fields : json::object()}});
+        }
+    t_String = scripts.dump();
+    return t_String.c_str();
+}
+
+const char* ApiAssetFindResources(const char* path, int all)
+{
+    json result = json::array();
+    if (g_Assets.findResources)
+        for (const std::string& asset : g_Assets.findResources(path ? path : "", all != 0))
+            result.push_back(asset);
+    t_String = result.dump();
+    return t_String.c_str();
+}
+
+const char* ApiAssetDescribe(const char* assetPath)
+{
+    json info;
+    if (g_Assets.describe && assetPath)
+        info = g_Assets.describe(assetPath);
+    t_String = info.is_object() ? info.dump() : "{\"kind\":\"missing\"}";
+    return t_String.c_str();
+}
+
+uint32_t ApiAssetPrefabTemplate(const char* assetPath)
+{
+    if (!g_Scene || !assetPath || !g_Assets.instantiate)
+        return 0;
+    std::string path = assetPath;
+    if (auto it = g_Templates.find(path); it != g_Templates.end())
+        return E(it->second) ? it->second : 0;
+    if (!E(g_TemplateRoot)) {
+        Entity& container = g_Scene->CreateEntity("[Prefab Assets]");
+        container.active = false;
+        container.editorHidden = true;
+        g_TemplateRoot = container.id;
+    }
+    EntityID root = g_Assets.instantiate(*g_Scene, path, g_TemplateRoot);
+    if (root) {
+        if (Entity* e = E(root))
+            e->prefab.clear();
+        g_Scene->UpdateWorldTransforms();
+    }
+    g_Templates[path] = root;
+    return root;
+}
+
 void FillApi(ScriptNativeApi& api)
 {
     api.Log = ApiLog;
@@ -780,6 +896,14 @@ void FillApi(ScriptNativeApi& api)
     api.InputSetCursorLocked = ApiInputSetCursorLocked;
     api.ScreenSize = ApiScreenSize;
     api.MainCamera = ApiMainCamera;
+    api.EntityGetTag = ApiEntityGetTag;
+    api.EntitySetTag = ApiEntitySetTag;
+    api.EntityGetLayer = ApiEntityGetLayer;
+    api.EntitySetLayer = ApiEntitySetLayer;
+    api.EntityGetScripts = ApiEntityGetScripts;
+    api.AssetFindResources = ApiAssetFindResources;
+    api.AssetDescribe = ApiAssetDescribe;
+    api.AssetPrefabTemplate = ApiAssetPrefabTemplate;
 }
 
 template <class Fn>
@@ -859,6 +983,8 @@ void ScriptEngine::SetApplicationInfo(const std::filesystem::path& dataPath, con
     json info = {{"dataPath", Platform::PathToUtf8(dataPath)}, {"productName", productName}, {"companyName", companyName}};
     g_Managed.SetApplicationInfo(info.dump().c_str());
 }
+
+void ScriptEngine::SetAssetProvider(ScriptAssetProvider provider) { g_Assets = std::move(provider); }
 
 std::string ScriptEngine::TakeResult()
 {
@@ -1004,6 +1130,14 @@ void ScriptEngine::EndPlay()
         return;
     g_Managed.EndPlay();
     Input::SetCursorLocked(false);
+    if (g_Scene && E(g_TemplateRoot)) {
+        if (g_Physics)
+            for (EntityID id : g_Scene->Subtree(g_TemplateRoot))
+                g_Physics->RemoveEntity(id);
+        g_Scene->DestroyEntity(g_TemplateRoot);
+    }
+    g_TemplateRoot = 0;
+    g_Templates.clear();
     m_Playing = false;
     g_Scene = nullptr;
     g_Physics = nullptr;

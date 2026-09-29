@@ -112,7 +112,7 @@ void EditorApp::DrawProject()
                 ImGui::TableNextColumn();
                 ImGui::PushID(entry.path.string().c_str());
                 std::string name = entry.directory ? entry.path.filename().string() : entry.path.stem().string();
-                bool isScene = entry.path.extension() == ".zscene";
+                bool isScene = entry.path.extension() == ".zscene" || UnityImporter::IsUnityScene(entry.path);
 
                 ImVec2 pos = ImGui::GetCursorScreenPos();
                 std::string assetPath = Platform::PathToUtf8(fs::relative(entry.path, assets, ec));
@@ -141,7 +141,7 @@ void EditorApp::DrawProject()
                 }
                 bool isImage = !entry.directory && ImageIO::IsImageFile(entry.path);
                 bool isModel = !entry.directory && ModelImporter::IsModelFile(entry.path);
-                bool isPrefab = entry.path.extension() == ".zprefab";
+                bool isPrefab = entry.path.extension() == ".zprefab" || UnityImporter::IsUnityPrefab(entry.path);
                 if (!entry.directory && ImGui::BeginDragDropSource()) {
                     ImGui::SetDragDropPayload("IE_ASSET", assetPath.c_str(), assetPath.size() + 1);
                     ImGui::TextUnformatted(assetPath.c_str());
@@ -361,7 +361,8 @@ const std::vector<EditorApp::ProjectEntry>& EditorApp::ListDirectoryCached(const
     std::error_code ec;
     for (const auto& item : fs::directory_iterator(dir, ec)) {
         std::string name = item.path().filename().string();
-        if (name.empty() || name[0] == '.')
+        // Hidden files, and Unity's .meta files (asset GUIDs), are not assets.
+        if (name.empty() || name[0] == '.' || item.path().extension() == ".meta")
             continue;
         entries.push_back({item.path(), item.is_directory(ec)});
     }

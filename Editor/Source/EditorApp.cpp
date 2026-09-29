@@ -3,6 +3,7 @@
 #include "EditorUI.h"
 
 #include <IndeetsEngine/Core/Platform.h>
+#include <IndeetsEngine/Scripting/ProjectAssets.h>
 #include <IndeetsEngine/Scripting/ScriptEngine.h>
 
 #include <imgui_internal.h>
@@ -11,7 +12,9 @@
 #include <glm/gtc/type_ptr.hpp>
 
 #include <algorithm>
+#include <chrono>
 #include <format>
+#include <map>
 #include <limits>
 
 namespace ie {
@@ -60,10 +63,17 @@ void EditorApp::OnStart()
     GetWindow().onFileDrop = [this](const std::vector<std::filesystem::path>& files) { ImportFiles(files); };
     Log::Info("Project: {}", m_ProjectDir.string());
 
-    std::filesystem::path mainScene = AssetsDir() / "Scenes" / (std::string("Main") + kSceneExtension);
-    if (!std::filesystem::exists(mainScene) || !OpenScene(mainScene)) {
-        CreateDefaultScene();
-        SaveSceneAs(mainScene);
+    // --scene <path>: a scene to open (relative to Assets or absolute), also a Unity .unity scene.
+    std::string sceneArg = ArgValue("--scene");
+    std::filesystem::path startScene = Platform::Utf8ToPath(sceneArg);
+    if (!sceneArg.empty() && startScene.is_relative())
+        startScene = AssetsDir() / startScene;
+    if (sceneArg.empty() || !OpenScene(startScene)) {
+        std::filesystem::path mainScene = AssetsDir() / "Scenes" / (std::string("Main") + kSceneExtension);
+        if (!std::filesystem::exists(mainScene) || !OpenScene(mainScene)) {
+            CreateDefaultScene();
+            SaveSceneAs(mainScene);
+        }
     }
 
     ResetUndo();
@@ -454,7 +464,7 @@ void EditorApp::DrawModals()
 
     ImGui::SetNextWindowPos(center, ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
     if (ImGui::BeginPopupModal("About IndeetsEngine", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
-        ImGui::TextUnformatted("IndeetsEngine Editor 0.3");
+        ImGui::TextUnformatted("IndeetsEngine Editor 0.6");
         ImGui::Separator();
         ImGui::TextUnformatted("Vulkan 1.3 renderer, Jolt Physics, Dear ImGui.");
         ImGui::TextDisabled("Scene view: RMB + WASD/QE fly, MMB pan, wheel zoom, F frame selected.");
@@ -574,19 +584,54 @@ void EditorApp::CreateDefaultScene()
     ramp.meshRenderer->color = {0.55f, 0.5f, 0.45f, 1.0f};
 }
 
+UnityAssetDatabase& EditorApp::UnityAssets()
+{
+    if (!m_UnityAssets)
+        m_UnityAssets = std::make_shared<UnityAssetDatabase>(AssetsDir());
+    return *m_UnityAssets;
+}
+
+UnityImportOptions EditorApp::UnityOptions()
+{
+    UnityImportOptions options;
+    options.loadModel = [this](const std::string& assetPath) { return GetRenderer().LoadModel(assetPath); };
+    return options;
+}
+
 bool EditorApp::OpenScene(const std::filesystem::path& path)
 {
     if (IsPlaying())
         Stop();
     Scene loaded;
-    if (!SceneSerializer::Load(loaded, path))
+    bool unity = UnityImporter::IsUnityScene(path);
+    if (unity) {
+        // A Unity scene is converted: saving writes an engine scene next to it.
+        UnityAssets().Refresh();
+        UnityImportReport report;
+        auto start = std::chrono::steady_clock::now();
+        if (!UnityImporter::ImportScene(UnityAssets(), RelativeToAssets(path), loaded, UnityOptions(), &report)) {
+            Log::Error("Could not import Unity scene {}", RelativeToAssets(path));
+            return false;
+        }
+        float seconds = std::chrono::duration<float>(std::chrono::steady_clock::now() - start).count();
+        Log::Info("Imported Unity scene {} in {:.1f} s: {}", RelativeToAssets(path), seconds, report.Summary());
+        std::map<std::string, int> warnings;
+        for (const std::string& w : report.warnings)
+            ++warnings[w];
+        for (const auto& [w, n] : warnings)
+            n > 1 ? Log::Warn("{} (x{})", w, n) : Log::Warn("{}", w);
+    } else if (!SceneSerializer::Load(loaded, path)) {
         return false;
+    }
     SceneSerializer::FromString(m_Scene, SceneSerializer::ToString(loaded));
     m_ScenePath = path;
+    if (unity)
+        m_ScenePath.replace_extension(kSceneExtension);
     m_Selected = 0;
-    m_Dirty = false;
+    m_Dirty = unity;
     ResetUndo();
-    Log::Info("Opened scene {}", RelativeToAssets(path));
+    if (!unity)
+        Log::Info("Opened scene {}", RelativeToAssets(path));
     return true;
 }
 
@@ -657,6 +702,8 @@ void EditorApp::Play()
             return;
         }
     }
+    if (m_UnityAssets)
+        m_UnityAssets->Refresh(); // prefabs and assets may have changed since the last import
     m_EditSnapshot = SceneSerializer::ToString(m_Scene);
     m_Physics.Start(m_Scene);
     m_PlayState = PlayState::Playing;
@@ -788,7 +835,7 @@ EntityID EditorApp::PickEntity(const glm::vec3& origin, const glm::vec3& directi
     EntityID best = 0;
     float bestDistance = std::numeric_limits<float>::max();
     for (const auto& e : m_Scene.Entities()) {
-        if (!e->active || e->IsUIOnly())
+        if (e->IsUIOnly() || !m_Scene.IsActiveInHierarchy(e->id))
             continue;
         glm::vec3 bmin(-0.35f), bmax(0.35f); // handle for objects without a mesh (lights, cameras)
         glm::mat4 model = e->world;

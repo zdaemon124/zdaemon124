@@ -166,9 +166,11 @@ namespace IndeetsEngine.Runtime
             if (typeof(Object).IsAssignableFrom(t))
             {
                 var o = value as Object;
-                GameObject go = o switch { GameObject g => g, Component c => c.gameObject, _ => null };
-                if (!o || go is null)
+                if (!o)
                     return null;
+                GameObject go = o switch { GameObject g => g, Component c => c.gameObject, _ => null };
+                if (go is null)
+                    return AssetLoader.Reference(o); // assets, ScriptableObjects, materials ...
                 return new JsonObject { ["entity"] = go.m_Id };
             }
             if (ElementType(t) is Type element)
@@ -270,10 +272,21 @@ namespace IndeetsEngine.Runtime
             if (depth > MaxDepth)
                 return existing;
             if (t == typeof(string))
-                return node?.GetValue<string>() ?? string.Empty;
+                return node is JsonValue sv ? (sv.TryGetValue(out string text) ? text : sv.ToJsonString()) : string.Empty;
             if (t == typeof(bool))
-                return node != null && (node.GetValueKind() == System.Text.Json.JsonValueKind.True ||
-                                        (node.GetValueKind() == System.Text.Json.JsonValueKind.Number && Number(node) != 0));
+            {
+                if (node == null)
+                    return false;
+                switch (node.GetValueKind())
+                {
+                    case System.Text.Json.JsonValueKind.True: return true;
+                    case System.Text.Json.JsonValueKind.Number: return Number(node) != 0;
+                    case System.Text.Json.JsonValueKind.String: // Unity YAML: "0" / "1"
+                        string b = node.GetValue<string>();
+                        return b == "1" || string.Equals(b, "true", StringComparison.OrdinalIgnoreCase);
+                    default: return false;
+                }
+            }
             if (t.IsEnum)
             {
                 if (node == null) return existing;
@@ -283,7 +296,9 @@ namespace IndeetsEngine.Runtime
             }
             if (t == typeof(char))
             {
-                string s = node?.GetValue<string>();
+                string s = node is JsonValue cv && cv.TryGetValue(out string cs) ? cs : null;
+                if (s == null && node != null && node.GetValueKind() == System.Text.Json.JsonValueKind.Number)
+                    return (char)(int)Number(node); // Unity stores chars as their code
                 return string.IsNullOrEmpty(s) ? '\0' : s[0];
             }
             if (t.IsPrimitive || t == typeof(decimal))
@@ -302,7 +317,16 @@ namespace IndeetsEngine.Runtime
 
             if (typeof(Object).IsAssignableFrom(t))
             {
-                uint id = node is JsonObject reference ? (uint)Number(reference["entity"]) : 0u;
+                if (!(node is JsonObject reference))
+                    return null;
+                if (reference.ContainsKey("asset"))
+                    return AssetLoader.Resolve(reference, t);
+                if (reference.ContainsKey("instance"))
+                {
+                    Object runtime = AssetLoader.ResolveRuntime(reference);
+                    return runtime != null && t.IsInstanceOfType(runtime) ? runtime : null;
+                }
+                uint id = (uint)Number(reference["entity"]);
                 if (id == 0)
                     return null;
                 if (remap != null)

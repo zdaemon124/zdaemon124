@@ -286,7 +286,8 @@ namespace IndeetsEngine.Runtime
             if (typeof(MonoBehaviour).IsAssignableFrom(type) || type.IsInterface)
             {
                 foreach (MonoBehaviour b in s_Behaviours.ToArray())
-                    if (b.IsAlive && type.IsInstanceOfType(b) && (includeInactive || b.m_GameObject.activeInHierarchy))
+                    if (b.IsAlive && type.IsInstanceOfType(b) && !b.m_GameObject.m_IsAsset &&
+                        (includeInactive || b.m_GameObject.activeInHierarchy))
                         yield return b;
                 yield break;
             }
@@ -713,38 +714,59 @@ namespace IndeetsEngine.Runtime
             RunInitializers(RuntimeInitializeLoadType.BeforeSplashScreen);
             RunInitializers(RuntimeInitializeLoadType.BeforeSceneLoad);
 
-            // Pass 1: create every script so references between them resolve in pass 2.
-            var pending = new List<(MonoBehaviour behaviour, JsonObject fields)>();
             if (scene?["entities"] is JsonArray entities)
             {
+                var stored = new List<(uint id, JsonArray scripts)>();
                 foreach (JsonNode entityNode in entities)
+                    if (entityNode?["scripts"] is JsonArray scripts)
+                        stored.Add(((uint)FieldCodec.Number(entityNode["id"]), scripts));
+                CreateScripts(stored);
+            }
+
+            SyncActivation();
+            RunInitializers(RuntimeInitializeLoadType.AfterSceneLoad);
+        }
+
+        /// <summary>
+        /// Creates the scripts stored on entities: [{class, enabled, fields}] per entity. All of them
+        /// exist before any reads its fields, so references between them resolve.
+        /// </summary>
+        private static void CreateScripts(List<(uint id, JsonArray scripts)> stored)
+        {
+            var pending = new List<(MonoBehaviour behaviour, JsonObject fields)>();
+            foreach (var (id, scripts) in stored)
+            {
+                GameObject go = GetGameObject(id);
+                if (go == null)
+                    continue;
+                foreach (JsonNode scriptNode in scripts)
                 {
-                    uint id = (uint)FieldCodec.Number(entityNode?["id"]);
-                    GameObject go = GetGameObject(id);
-                    if (go == null || !(entityNode["scripts"] is JsonArray scripts))
-                        continue;
-                    foreach (JsonNode scriptNode in scripts)
+                    string className = scriptNode?["class"]?.GetValue<string>();
+                    Type type = ScriptDomain.FindScriptType(className);
+                    if (type == null)
                     {
-                        string className = scriptNode?["class"]?.GetValue<string>();
-                        Type type = ScriptDomain.FindScriptType(className);
-                        if (type == null)
-                        {
-                            Debug.LogWarning($"The referenced script '{className}' on '{go.name}' is missing (not compiled or renamed).");
-                            continue;
-                        }
-                        bool enabled = scriptNode["enabled"]?.GetValue<bool>() ?? true;
-                        MonoBehaviour b = CreateBehaviour(go, type, null, enabled);
-                        if (b != null)
-                            pending.Add((b, scriptNode["fields"] as JsonObject));
+                        Debug.LogWarning($"The referenced script '{className}' on '{go.name}' is missing (not compiled or renamed).");
+                        continue;
                     }
+                    bool enabled = scriptNode["enabled"]?.GetValue<bool>() ?? true;
+                    MonoBehaviour b = CreateBehaviour(go, type, null, enabled);
+                    if (b != null)
+                        pending.Add((b, scriptNode["fields"] as JsonObject));
                 }
             }
             foreach (var (behaviour, fields) in pending)
                 if (fields != null)
                     FieldCodec.ReadInto(behaviour, fields, null);
+        }
 
-            SyncActivation();
-            RunInitializers(RuntimeInitializeLoadType.AfterSceneLoad);
+        /// <summary>Creates the scripts stored on native entities (prefab assets loaded while playing).</summary>
+        public static void CreateStoredScripts(uint[] ids)
+        {
+            var stored = new List<(uint id, JsonArray scripts)>();
+            foreach (uint id in ids)
+                if (JsonNode.Parse(Native.FromUtf8(Native.Api.EntityGetScripts(id))) is JsonArray scripts && scripts.Count > 0)
+                    stored.Add((id, scripts));
+            CreateScripts(stored);
         }
 
         public static void EndPlay()
@@ -790,6 +812,7 @@ namespace IndeetsEngine.Runtime
             s_ActiveCache.Clear();
             CoroutineScheduler.Clear();
             InvokeScheduler.Clear();
+            AssetLoader.Reset();
         }
 
         private static void RunInitializers(RuntimeInitializeLoadType when)

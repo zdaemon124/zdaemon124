@@ -3,6 +3,7 @@
 #include "EditorUI.h"
 
 #include <IndeetsEngine/Core/Platform.h>
+#include <IndeetsEngine/Scripting/ProjectAssets.h>
 #include <IndeetsEngine/Scripting/ScriptEngine.h>
 
 #include <glm/gtc/type_ptr.hpp>
@@ -396,6 +397,9 @@ void EditorApp::InitScripting()
     if (!scripts.Initialize(true))
         return;
     scripts.SetApplicationInfo(AssetsDir(), m_ProjectDir.filename().string(), "DefaultCompany");
+    UnityAssets();
+    scripts.SetAssetProvider(MakeProjectAssets(
+        AssetsDir(), [this](const std::string& assetPath) { return GetRenderer().LoadModel(assetPath); }, m_UnityAssets));
     m_ScriptSignature = ScriptSignature();
     scripts.CompileAsync(ScriptEngine::FindScriptFiles(AssetsDir()));
 }

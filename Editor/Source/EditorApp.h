@@ -1,5 +1,6 @@
 #pragma once
 
+#include <IndeetsEngine/Assets/UnityImporter.h>
 #include <IndeetsEngine/IndeetsEngine.h>
 #include <IndeetsEngine/Scene/UILayout.h>
 #include <IndeetsEngine/UI/ImGuiLayer.h>
@@ -158,6 +159,11 @@ private:
     bool m_ShowStats = true;
     glm::vec3 m_EulerCache{0.0f};
     EntityID m_EulerCacheEntity = 0;
+
+    // Unity assets in the project (.unity / .prefab / .asset / .meta), shared by import and scripts
+    std::shared_ptr<UnityAssetDatabase> m_UnityAssets;
+    UnityAssetDatabase& UnityAssets();
+    UnityImportOptions UnityOptions();
 
     // Scene file
     std::filesystem::path m_ProjectDir;

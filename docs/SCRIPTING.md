@@ -60,16 +60,29 @@ public class Spinner : MonoBehaviour
 | Рендер | `Renderer.material.color`, `MaterialPropertyBlock` (цвет), `Light` (`color`, `intensity`), `Camera` (`main`, `fieldOfView`, `ScreenPointToRay`, `WorldToScreenPoint`, `ViewportToWorldPoint`...) |
 | Математика | `Vector2/3/4`, `Vector2Int/3Int`, `Quaternion` (Euler в порядке Unity Z-X-Y, `LookRotation`, `Slerp`, `RotateTowards`...), `Mathf` (включая `SmoothDamp`, `PerlinNoise`), `Color`, `Color32`, `ColorUtility`, `Random`, `Ray`, `Bounds`, `Rect`, `LayerMask` |
 | Ввод | `Input` (`GetKey*`, `GetMouseButton*`, `mousePosition`, `GetAxis("Horizontal"/"Vertical"/"Mouse X"...)`, `GetButton*`) и Input System: `Keyboard.current[Key.W].isPressed`, `wasPressedThisFrame`, `Mouse.current.position/delta/scroll/leftButton` |
+| Ассеты | `Resources.Load`/`LoadAll`/`LoadAsync` (префабы, `ScriptableObject`, `TextAsset`, `Texture2D`, `Sprite`, `Material`, `AudioClip`), ссылки на префабы и ассеты в полях, `Instantiate(prefab)`; каждый ассет загружается один раз и общий для всех ссылок, как в Unity |
 | Прочее | `Time` (`deltaTime`, `timeScale`, `fixedDeltaTime`, `unscaled*`, `frameCount`, `realtimeSinceStartup`), `Debug.Log*`, `Application`, `Screen`, `Cursor.lockState`, `PlayerPrefs` (JSON в `persistentDataPath`) |
 
 ## Чего пока нет
 
 Эти части появятся со следующими этапами (см. [UNITY_PORTING.md](UNITY_PORTING.md)):
 
-- загрузка ассетов из скриптов: `Resources.Load`, ссылки на префабы, материалы и `ScriptableObject`-ассеты в полях (сейчас `Resources.Load` возвращает `null` и один раз предупреждает);
+- пиксели текстур из ассетов (`Texture2D.GetPixel` работает только для текстур, созданных скриптом), воспроизведение `AudioClip`;
 - `Animator`, uGUI/TextMeshPro, `NavMeshAgent`, Netcode, аудио, частицы;
 - `Physics.SphereCast`/`OverlapSphere`, слои в физических запросах, `CharacterController`.
+
+## Ассеты из скриптов
+
+Поля с префабами, `ScriptableObject`, материалами, спрайтами и текстами, а также `Resources.Load`, работают так же, как в Unity.
+
+- **Префаб** загружается в скрытый неактивный контейнер. Его скрипты создаются, но `Awake` у них не вызывается. `Find*` его не видит. `Instantiate(prefab)` делает копию в сцене, и у копии скрипты запускаются обычным образом. После Stop контейнер удаляется.
+- **`ScriptableObject`** (`.asset`) создаётся один раз: поля читаются из файла, затем вызываются `Awake` и `OnEnable`. Ссылки между ассетами, в том числе циклические, сохраняются.
+- **`Resources`** ищет ассеты в любых папках `Resources` по пути без расширения, например `Resources.Load<EnemyConfig>("Configs/Goblin")`. `LoadAll` берёт всё из папки, включая вложенные.
+
+Движок читает Unity-файлы (`.prefab`, `.asset`, `.meta`) и свои (`.zprefab`, модели), поэтому папку `Assets` Unity-проекта можно открыть в редакторе как проект.
 
 ## Тесты
 
 `Tests/ScriptingTests` компилирует настоящие C#-скрипты и прогоняет сцену без окна. Проверяются жизненный цикл, корутины, `Instantiate`/`Destroy`, физика с контактами, математика трансформов и горячая перезагрузка. Тест запускается через `ctest` локально и в CI на Windows и Linux.
+
+`Tests/UnityImportTests` импортирует небольшой Unity-проект (`Tests/UnityImportTests/Project`: сцена, префаб, `ScriptableObject`, `Resources`) и запускает его скрипты. Проверяются переопределения в экземпляре префаба, ссылки в полях, `Resources.Load`, `Instantiate(prefab)`, теги и слои.

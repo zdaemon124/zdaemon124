@@ -78,6 +78,15 @@ namespace IndeetsEngine.Interop
         public delegate* unmanaged<int, void> InputSetCursorLocked;
         public delegate* unmanaged<float*, void> ScreenSize;
         public delegate* unmanaged<uint> MainCamera;
+
+        public delegate* unmanaged<uint, byte*> EntityGetTag;
+        public delegate* unmanaged<uint, byte*, void> EntitySetTag;
+        public delegate* unmanaged<uint, int> EntityGetLayer;
+        public delegate* unmanaged<uint, int, void> EntitySetLayer;
+        public delegate* unmanaged<uint, byte*> EntityGetScripts;
+        public delegate* unmanaged<byte*, int, byte*> AssetFindResources;
+        public delegate* unmanaged<byte*, byte*> AssetDescribe;
+        public delegate* unmanaged<byte*, uint> AssetPrefabTemplate;
     }
 
     /// <summary>Access to the native function table plus UTF-8 helpers.</summary>

@@ -149,6 +149,10 @@ json EntityToJson(const Entity& e)
     je["id"] = e.id;
     je["name"] = e.name;
     je["active"] = e.active;
+    if (e.tag != "Untagged")
+        je["tag"] = e.tag;
+    if (e.layer != 0)
+        je["layer"] = e.layer;
     if (e.parent)
         je["parent"] = e.parent;
     if (!e.prefab.empty())
@@ -178,6 +182,8 @@ json EntityToJson(const Entity& e)
 void EntityFromJson(Entity& e, const json& je)
 {
     e.active = je.value("active", true);
+    e.tag = je.value("tag", std::string("Untagged"));
+    e.layer = je.value("layer", 0);
     e.parent = je.value("parent", 0u);
     e.prefab = je.value("prefab", std::string());
     e.transform = je.value("transform", Transform{});
@@ -213,8 +219,14 @@ std::string ToString(const Scene& scene)
     root["version"] = kFormatVersion;
     root["settings"] = scene.settings;
     json& entities = root["entities"] = json::array();
-    for (const auto& e : scene.Entities())
-        entities.push_back(EntityToJson(*e));
+    for (const auto& e : scene.Entities()) {
+        // Runtime-only containers (prefab assets loaded by scripts) are never saved.
+        bool hidden = false;
+        for (const Entity* p = e.get(); p && !hidden; p = p->parent ? scene.Get(p->parent) : nullptr)
+            hidden = p->editorHidden;
+        if (!hidden)
+            entities.push_back(EntityToJson(*e));
+    }
     return root.dump(2);
 }
 

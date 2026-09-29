@@ -8,7 +8,7 @@
 
 | Подсистема Unity | Масштаб в проекте | В движке сейчас |
 |---|---|---|
-| C#-скрипты: `MonoBehaviour`, корутины, `ScriptableObject`, `[SerializeField]`, `RuntimeInitializeOnLoadMethod`, `GetComponent*`, `Find*` | ~370 скриптов, ~121 тыс. строк; `UnityEngine` — в 437 файлах | ✅ рантайм и API ядра ([SCRIPTING.md](SCRIPTING.md)); ассеты `ScriptableObject` — с этапом 2 |
+| C#-скрипты: `MonoBehaviour`, корутины, `ScriptableObject`, `[SerializeField]`, `RuntimeInitializeOnLoadMethod`, `GetComponent*`, `Find*` | ~370 скриптов, ~121 тыс. строк; `UnityEngine` — в 437 файлах | ✅ рантайм, API ядра и ассеты ([SCRIPTING.md](SCRIPTING.md)) |
 | Анимация: `Animator` со state machine, humanoid avatar, IK, blend shapes, `SkinnedMeshRenderer` | 33 скрипта, ~220 клипов `.anim`, 11 контроллеров | нет: модели импортируются статичными |
 | Сеть: Netcode for GameObjects (`NetworkBehaviour`, `NetworkVariable`, `NetworkList`, `ClientRpc`/`ServerRpc`, `NetworkTransform`, транспорт UTP) | 23 сетевых компонента | нет |
 | UI: uGUI (`Canvas`, `Image`, `Button`, layout, маски, `EventSystem`), TextMeshPro (SDF-текст), world-space плашки | 53 / 25 / 33 скрипта | базовые Image и Text, Rect Transform, Canvas Scaler |
@@ -18,12 +18,29 @@
 | Навигация: NavMesh + `NavMeshAgent` | 8 скриптов | нет |
 | Ввод: Input System (`Keyboard.current`, `Mouse.current`), переназначение клавиш | 21 скрипт | ✅ `Input` и основное из Input System (`InputAction` — далее) |
 | Ландшафт: `Terrain` со слоями текстур | ~16 terrain layers | нет |
-| Ассеты: `.unity`/`.prefab` (YAML), `.mat`, `.meta` (GUID), `Resources.Load` | 3 сцены, ~200 префабов | свои `.zscene`/`.zprefab` (JSON), FBX/OBJ/glTF |
+| Ассеты: `.unity`/`.prefab` (YAML), `.mat`, `.meta` (GUID), `Resources.Load` | 3 сцены, ~200 префабов | ✅ импорт сцен и префабов (вложенные префабы, переопределения, модели), `.mat` (цвет и текстура), `ScriptableObject`, `Resources.Load` |
 
 ## Этапы
 
 1. ✅ **C#-рантайм (.NET 8, hostfxr)** и слой совместимости `UnityEngine`: `GameObject`, `Transform`, `Component`, `MonoBehaviour` с полным жизненным циклом, корутины, `Time`, математика, `Debug`, `Object.Destroy`/`Instantiate`, «псевдо-null», `Input` и Input System, `Rigidbody`/коллайдеры/`Physics.Raycast`, `OnCollision*`/`OnTrigger*`, сериализация полей и Inspector, встроенный компилятор и горячая перезагрузка. Подробно — [SCRIPTING.md](SCRIPTING.md).
-2. **Импорт Unity-проекта**: чтение YAML сцен и префабов, разрешение GUID из `.meta`, материалы `.mat` → материалы движка, сериализованные поля скриптов → поля C#-компонентов.
+2. ✅ **Импорт Unity-проекта**:
+   - чтение YAML сцен и префабов и GUID из `.meta`;
+   - вложенные префабы и модели внутри префабов;
+   - переопределения в экземплярах (`m_Modifications`, удалённые компоненты и объекты);
+   - меши (встроенные и из моделей), коллайдеры, `Rigidbody`, свет, камера;
+   - материалы `.mat`: цвет и текстура;
+   - поля скриптов со ссылками на объекты сцены и ассеты;
+   - `ScriptableObject`, `Resources.Load`, `Instantiate(prefab)`.
+
+   Как пользоваться: откройте папку Unity-проекта как проект (`IndeetsEngine-Editor --project <папка>`) и дважды щёлкните `.unity` в Project. Сцена конвертируется, Save сохраняет её как `.zscene` рядом с исходной. Unity-префабы можно перетаскивать в Hierarchy.
+
+   Проверено на игре: `hublevel` импортируется за ~8 с (≈6900 объектов, ≈1900 экземпляров префабов), все ~200 префабов проекта открываются без ошибок. Пока не поддерживаются:
+   - `MeshCollider` (заменяется боксом по границам меша);
+   - точечные и прожекторные источники света;
+   - `LODGroup` (рисуется LOD0);
+   - `Terrain`.
+
+   Меши из FBX сопоставляются по имени узла. Номера под-ассетов Unity хэширует, и повторить этот хэш нельзя.
 3. **Скиннинг и анимация**: `SkinnedMeshRenderer` (GPU-скиннинг), клипы из FBX и `.anim`, `Animator` (слои, состояния, переходы, параметры, avatar masks), humanoid-ретаргет, IK ног и головы, blend shapes.
 4. **uGUI + SDF-текст**: `Canvas` (overlay и world space), `Image` (sliced, filled), `Button`/`Toggle`/`Slider`/`ScrollRect`, Layout Groups, `Mask`/`RectMask2D`, `EventSystem` (hover, click, drag), SDF-шрифты уровня TextMeshPro, rich text.
 5. **Физика для персонажей**: `CharacterController` (capsule sweep, ступеньки, склоны) поверх Jolt `CharacterVirtual`, `SphereCast`/`Overlap*NonAlloc`, слои и маски, суставы и регдоллы.

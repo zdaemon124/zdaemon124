@@ -198,6 +198,8 @@ namespace IndeetsEngine.Runtime
         private static readonly Dictionary<string, Type> s_ByFullName = new Dictionary<string, Type>();
         private static readonly Dictionary<string, Type> s_ByName = new Dictionary<string, Type>();
         private static readonly List<Type> s_ScriptTypes = new List<Type>();
+        // ScriptableObject classes (assets), by full and short name.
+        private static readonly Dictionary<string, Type> s_AssetTypes = new Dictionary<string, Type>();
 
         private static Task<CompileResult> s_Pending;
 
@@ -284,6 +286,11 @@ namespace IndeetsEngine.Runtime
             }
             foreach (Type t in types)
             {
+                if (!t.IsAbstract && !t.ContainsGenericParameters && typeof(ScriptableObject).IsAssignableFrom(t))
+                {
+                    s_AssetTypes[t.FullName ?? t.Name] = t;
+                    s_AssetTypes.TryAdd(t.Name, t);
+                }
                 if (t.IsAbstract || t.ContainsGenericParameters || !typeof(MonoBehaviour).IsAssignableFrom(t))
                     continue;
                 s_ScriptTypes.Add(t);
@@ -301,6 +308,7 @@ namespace IndeetsEngine.Runtime
             s_ScriptTypes.Clear();
             s_ByFullName.Clear();
             s_ByName.Clear();
+            s_AssetTypes.Clear();
             World.ClearTypeCaches();
             s_Assembly = null;
             if (s_Context != null)
@@ -323,6 +331,14 @@ namespace IndeetsEngine.Runtime
             if (s_ByFullName.TryGetValue(name, out Type t))
                 return t;
             return s_ByName.TryGetValue(name, out t) ? t : null;
+        }
+
+        /// <summary>A MonoBehaviour or ScriptableObject class by (full) name.</summary>
+        public static Type FindType(string name)
+        {
+            if (string.IsNullOrEmpty(name))
+                return null;
+            return FindScriptType(name) ?? (s_AssetTypes.TryGetValue(name, out Type t) ? t : null);
         }
 
         public static IEnumerable<MethodInfo> InitializeMethods(RuntimeInitializeLoadType when)

@@ -26,6 +26,11 @@ EntityID EditorApp::InstantiateAsset(const std::string& assetPath, EntityID pare
     if (ModelImporter::IsModelFile(file)) {
         if (const ModelAsset* model = GetRenderer().LoadModel(assetPath))
             root = InstantiateModel(m_Scene, *model, parent);
+    } else if (UnityImporter::IsUnityPrefab(file)) {
+        UnityImportReport report;
+        root = UnityImporter::InstantiatePrefab(UnityAssets(), assetPath, m_Scene, parent, UnityOptions(), &report);
+        if (!report.skipped.empty() || report.missingScripts)
+            Log::Info("{}: {}", assetPath, report.Summary());
     } else if (file.extension() == ".zprefab") {
         root = SceneSerializer::InstantiatePrefab(m_Scene, AssetsDir() / file, parent);
         if (Entity* e = m_Scene.Get(root))

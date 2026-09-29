@@ -7,6 +7,7 @@
 
 #include <cstdint>
 #include <filesystem>
+#include <functional>
 #include <string>
 #include <vector>
 
@@ -14,6 +15,17 @@ namespace ie {
 
 class PhysicsWorld;
 struct ContactEvent;
+
+// Project assets for scripts (Resources.Load, asset references in serialized fields, Instantiate of prefabs).
+// Paths are relative to the Assets folder. See MakeProjectAssets (Scripting/ProjectAssets.h).
+struct ScriptAssetProvider {
+    // Resources.Load paths ("Folder/Name", no extension) -> asset paths. `all`: everything below a folder.
+    std::function<std::vector<std::string>(const std::string& resourcePath, bool all)> findResources;
+    // {"kind": "script" | "prefab" | "model" | "texture" | "material" | "audio" | "text" | "other", "name", ...}
+    std::function<nlohmann::json(const std::string& assetPath)> describe;
+    // Adds a prefab or model to the scene; returns its root (0 on failure).
+    std::function<EntityID(Scene& scene, const std::string& assetPath, EntityID parent)> instantiate;
+};
 
 struct ScriptDiagnostic {
     bool error = true;
@@ -44,6 +56,9 @@ public:
     const std::string& Error() const { return m_Error; }
     void SetApplicationInfo(const std::filesystem::path& dataPath, const std::string& productName,
                             const std::string& companyName);
+
+    // Where scripts load assets from; without one, Resources.Load finds nothing.
+    void SetAssetProvider(ScriptAssetProvider provider);
 
     // ---- Compilation
     // All *.cs under `assetsDir` (Editor folders excluded, like Unity).

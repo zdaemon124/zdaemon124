@@ -99,7 +99,7 @@ void EditorApp::DrawHierarchy()
     // Children lists (scene order) for the 3D tree; screen UI lives in the UI panel.
     std::unordered_map<EntityID, std::vector<Entity*>> children;
     for (auto& e : entities) {
-        if (e->IsUIOnly())
+        if (e->IsUIOnly() || e->editorHidden) // hidden containers take their subtree with them
             continue;
         EntityID parent = e->parent && m_Scene.Get(e->parent) ? e->parent : 0;
         children[parent].push_back(e.get());

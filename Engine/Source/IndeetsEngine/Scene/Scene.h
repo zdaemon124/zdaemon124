@@ -21,6 +21,9 @@ struct Entity {
     EntityID id = kInvalidEntity;
     std::string name;
     bool active = true;
+    std::string tag = "Untagged";     // GameObject.tag
+    int layer = 0;                    // GameObject.layer (0..31)
+    bool editorHidden = false;        // not listed in the Hierarchy (runtime asset containers)
     EntityID parent = kInvalidEntity; // 3D parent: `transform` is relative to it
     std::string prefab;               // prefab asset this entity is the root instance of ("" = none)
     Transform transform;              // local transform

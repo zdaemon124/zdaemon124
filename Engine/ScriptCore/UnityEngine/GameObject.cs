@@ -14,8 +14,7 @@ namespace UnityEngine
     {
         internal readonly uint m_Id;
         private Transform m_Transform;
-        internal string m_Tag = "Untagged";
-        internal int m_Layer;
+        internal bool m_IsAsset; // part of a prefab asset (Resources.Load / serialized reference), not the scene
 
         /// <summary>Wraps an existing entity (used by the runtime).</summary>
         internal GameObject(uint id)
@@ -68,19 +67,23 @@ namespace UnityEngine
 
         public string tag
         {
-            get => m_Tag;
-            set => m_Tag = string.IsNullOrEmpty(value) ? "Untagged" : value;
+            get => IsAlive ? Native.FromUtf8(Native.Api.EntityGetTag(m_Id)) : "Untagged";
+            set
+            {
+                fixed (byte* p = Native.Utf8(string.IsNullOrEmpty(value) ? "Untagged" : value))
+                    Native.Api.EntitySetTag(m_Id, p);
+            }
         }
 
         public int layer
         {
-            get => m_Layer;
-            set => m_Layer = Mathf.Clamp(value, 0, 31);
+            get => IsAlive ? Native.Api.EntityGetLayer(m_Id) : 0;
+            set => Native.Api.EntitySetLayer(m_Id, Mathf.Clamp(value, 0, 31));
         }
 
         public bool isStatic { get; set; }
 
-        public bool CompareTag(string tag) => m_Tag == tag;
+        public bool CompareTag(string tag) => this.tag == tag;
 
         // ---- Components
 
@@ -222,7 +225,7 @@ namespace UnityEngine
         public static GameObject FindGameObjectWithTag(string tag)
         {
             foreach (GameObject go in World.AllGameObjects())
-                if (go.m_Tag == tag && go.activeInHierarchy)
+                if (go.activeInHierarchy && go.tag == tag)
                     return go;
             return null;
         }
@@ -231,7 +234,7 @@ namespace UnityEngine
         {
             var result = new List<GameObject>();
             foreach (GameObject go in World.AllGameObjects())
-                if (go.m_Tag == tag && go.activeInHierarchy)
+                if (go.activeInHierarchy && go.tag == tag)
                     result.Add(go);
             return result.ToArray();
         }

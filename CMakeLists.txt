@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.24)
-project(IndeetsEngine VERSION 0.1.0 LANGUAGES C CXX)
+project(IndeetsEngine VERSION 0.6.0 LANGUAGES C CXX)
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -22,6 +22,7 @@ add_subdirectory(Editor)
 
 enable_testing()
 add_subdirectory(Tests/ScriptingTests)
+add_subdirectory(Tests/UnityImportTests)
 
 if(MSVC)
     set_property(DIRECTORY ${CMAKE_SOURCE_DIR} PROPERTY VS_STARTUP_PROJECT Editor)

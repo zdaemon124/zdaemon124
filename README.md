@@ -37,6 +37,11 @@
 - Компилятор C# встроен в редактор: сохранили `.cs` — через секунду скрипты перекомпилированы и подгружены без перезапуска; ошибки с файлом и строкой в Console, Play блокируется до исправления.
 - Поля `public` / `[SerializeField]` в Inspector (включая массивы, списки, `[Serializable]`-классы, ссылки на объекты), `[Header]`, `[Range]`, `[Tooltip]`; в Play Mode — живые значения.
 - Project → Create → C# Script, Add Component → Scripts, перетаскивание `.cs` на объект; .NET 8 входит в релизный архив.
+- Ассеты из скриптов: `Resources.Load`, `ScriptableObject`, ссылки на префабы в полях, `Instantiate(prefab)`.
+
+**Импорт Unity-проекта** (подробно — [docs/UNITY_PORTING.md](docs/UNITY_PORTING.md))
+- Папку Unity-проекта можно открыть как проект: `IndeetsEngine-Editor --project <папка Unity-проекта>`. Необязательный `--scene <путь>` сразу открывает сцену.
+- Двойной щелчок по `.unity` конвертирует сцену: объекты, иерархия, вложенные префабы с переопределениями, модели FBX, меши, материалы `.mat`, коллайдеры, свет, камера, теги, слои и поля скриптов со ссылками. Unity-префабы (`.prefab`) можно перетаскивать в Hierarchy.
 
 ![Scripts](docs/editor-scripts.png)
 
@@ -87,7 +92,7 @@
    ```
 
    Или откройте `build\IndeetsEngine.sln` (`.slnx` для VS 2026) и нажмите F5 — стартовый проект Editor.
-3. Тесты C#-скриптов (без окна): `ctest --test-dir build -C Debug --output-on-failure`.
+3. Тесты без окна (C#-скрипты и импорт Unity-проекта): `ctest --test-dir build -C Debug --output-on-failure`.
 
 ## Структура
 
@@ -97,13 +102,14 @@ Engine/Source/IndeetsEngine/
   Renderer/  VulkanContext, Swapchain, Pipeline, Renderer (render targets), Mesh
   Scene/     Scene, Entity, компоненты, Transform, Camera, Primitives, SceneSerializer
   Physics/   PhysicsWorld (Jolt), события контактов
-  Scripting/ DotNetHost (hostfxr), ScriptEngine (мост C++ <-> C#, Play Mode)
+  Assets/    импорт моделей, Unity YAML (.unity/.prefab/.asset/.meta), UnityImporter
+  Scripting/ DotNetHost (hostfxr), ScriptEngine (мост C++ <-> C#, Play Mode), ProjectAssets
   UI/        ImGuiLayer
 Engine/ScriptCore/  C#: API UnityEngine, рантайм MonoBehaviour, компилятор (Roslyn)
 Engine/Shaders/  GLSL (Lit, Sky, Grid, Unlit)
 Editor/          редактор
 Sandbox/         демо без редактора
-Tests/           тесты (C#-скрипты без окна)
+Tests/           тесты без окна: C#-скрипты, импорт Unity-проекта
 ```
 
 ## План
@@ -114,7 +120,8 @@ Tests/           тесты (C#-скрипты без окна)
 | 2 | Редактор: Hierarchy, Inspector, Project, Console, Scene/Game, гизмо, сохранение сцен | ✅ |
 | 3 | Физика Jolt: Rigidbody, коллайдеры, Play/Pause/Stop | ✅ |
 | 3.5 | UI: спрайты и текст на экране, импорт файлов | ✅ |
-| 4 | C#-скрипты (.NET 8): API UnityEngine, `MonoBehaviour`, корутины, `OnCollision*`/`OnTrigger*`, горячая перезагрузка | ✅ (ассеты из скриптов — с импортом Unity-проекта) |
+| 4 | C#-скрипты (.NET 8): API UnityEngine, `MonoBehaviour`, корутины, `OnCollision*`/`OnTrigger*`, горячая перезагрузка | ✅ |
+| 4.5 | Импорт Unity-проекта: сцены, префабы, `.meta`, `.mat`, `ScriptableObject`, `Resources.Load` | ✅ |
 | 5 | Иерархия объектов (parent/child), Undo/Redo, префабы | ✅ |
 | 6 | Материалы и текстуры, загрузка моделей FBX/OBJ/glTF, Inspector ассетов | ✅ (тени — далее) |
 | 7 | Суставы (joints) и регдоллы, декали, сборка игры в .exe | ⏳ |

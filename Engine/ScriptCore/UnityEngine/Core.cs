@@ -5,6 +5,7 @@ using System.Globalization;
 using System.IO;
 using System.Text.Json;
 using IndeetsEngine.Interop;
+using IndeetsEngine.Runtime;
 
 namespace UnityEngine
 {
@@ -267,32 +268,45 @@ namespace UnityEngine
         }
     }
 
-    /// <summary>Resources.Load needs the Unity asset importer (a later stage); until then it finds nothing.</summary>
+    /// <summary>
+    /// Assets inside "Resources" folders, by their path below the folder without extension
+    /// ("Folder/Name"). Each asset is loaded once and shared, like Unity.
+    /// </summary>
     public static class Resources
     {
-        private static readonly HashSet<string> s_Warned = new HashSet<string>();
+        public static T Load<T>(string path) where T : Object => (T)AssetLoader.ResourcesLoad(path, typeof(T));
+        public static Object Load(string path) => AssetLoader.ResourcesLoad(path, null);
+        public static Object Load(string path, Type systemTypeInstance) => AssetLoader.ResourcesLoad(path, systemTypeInstance);
 
-        private static void Warn(string path)
+        public static T[] LoadAll<T>(string path) where T : Object
         {
-            if (s_Warned.Add(path))
-                Debug.LogWarning($"Resources.Load(\"{path}\"): asset loading is not supported yet.");
+            List<Object> found = AssetLoader.ResourcesLoadAll(path, typeof(T));
+            var result = new T[found.Count];
+            for (int i = 0; i < found.Count; i++)
+                result[i] = (T)found[i];
+            return result;
         }
 
-        public static T Load<T>(string path) where T : Object { Warn(path); return null; }
-        public static Object Load(string path) { Warn(path); return null; }
-        public static Object Load(string path, Type systemTypeInstance) { Warn(path); return null; }
-        public static T[] LoadAll<T>(string path) where T : Object { Warn(path); return Array.Empty<T>(); }
-        public static Object[] LoadAll(string path) { Warn(path); return Array.Empty<Object>(); }
+        public static Object[] LoadAll(string path) => AssetLoader.ResourcesLoadAll(path, null).ToArray();
+        public static Object[] LoadAll(string path, Type systemTypeInstance) =>
+            AssetLoader.ResourcesLoadAll(path, systemTypeInstance).ToArray();
 
-        public static ResourceRequest LoadAsync<T>(string path) where T : Object { Warn(path); return new ResourceRequest(); }
-        public static ResourceRequest LoadAsync(string path) { Warn(path); return new ResourceRequest(); }
+        // Loading is synchronous: the request is done when returned.
+        public static ResourceRequest LoadAsync<T>(string path) where T : Object => new ResourceRequest(Load<T>(path));
+        public static ResourceRequest LoadAsync(string path) => new ResourceRequest(Load(path));
+        public static ResourceRequest LoadAsync(string path, Type type) => new ResourceRequest(Load(path, type));
+
+        public static T GetBuiltinResource<T>(string path) where T : Object => null;
         public static AsyncOperation UnloadUnusedAssets() => new AsyncOperation();
         public static void UnloadAsset(Object assetToUnload) { }
     }
 
     public class ResourceRequest : AsyncOperation
     {
-        public Object asset => null;
+        public ResourceRequest() { }
+        internal ResourceRequest(Object asset) { this.asset = asset; }
+
+        public Object asset { get; }
     }
 
     // ------------------------------------------------------------------ attributes
