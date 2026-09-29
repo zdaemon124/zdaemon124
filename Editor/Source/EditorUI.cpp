@@ -1,5 +1,7 @@
 #include "EditorUI.h"
 
+#include <algorithm>
+
 #include <glm/gtc/type_ptr.hpp>
 
 #include <cmath>
@@ -68,11 +70,14 @@ void DrawIcon(ImDrawList* d, Icon icon, ImVec2 min, ImVec2 max, ImU32 col)
         break;
     }
     case Icon::File:
-    case Icon::Scene: {
+    case Icon::Scene:
+    case Icon::Script: {
         float w = (max.x - min.x) * 0.62f, h = (max.y - min.y) * 0.8f;
         ImVec2 a(c.x - w * 0.5f, c.y - h * 0.5f), b(c.x + w * 0.5f, c.y + h * 0.5f);
         float fold = w * 0.3f;
-        ImU32 fill = icon == Icon::Scene ? IM_COL32(90, 140, 210, 255) : IM_COL32(190, 190, 190, 255);
+        ImU32 fill = icon == Icon::Scene    ? IM_COL32(90, 140, 210, 255)
+                     : icon == Icon::Script ? IM_COL32(110, 170, 95, 255)
+                                            : IM_COL32(190, 190, 190, 255);
         d->AddRectFilled(a, {b.x - fold, b.y}, fill, 2.0f);
         d->AddRectFilled({b.x - fold, a.y + fold}, b, fill, 2.0f);
         d->AddTriangleFilled({b.x - fold, a.y}, {b.x, a.y + fold}, {b.x - fold, a.y + fold}, IM_COL32(230, 230, 230, 255));
@@ -80,6 +85,13 @@ void DrawIcon(ImDrawList* d, Icon icon, ImVec2 min, ImVec2 max, ImU32 col)
             ImVec2 m((a.x + b.x) * 0.5f, (a.y + b.y) * 0.55f);
             float s = w * 0.22f;
             d->AddTriangleFilled({m.x - s, m.y + s}, {m.x, m.y - s}, {m.x + s, m.y + s}, IM_COL32(255, 255, 255, 220));
+        }
+        if (icon == Icon::Script) {
+            const char* text = "C#";
+            float size = std::max(8.0f, h * 0.36f);
+            ImVec2 extent = ImGui::GetFont()->CalcTextSizeA(size, FLT_MAX, 0.0f, text);
+            d->AddText(ImGui::GetFont(), size, {(a.x + b.x - fold * 0.5f - extent.x) * 0.5f, (a.y + b.y - extent.y) * 0.5f + h * 0.08f},
+                       IM_COL32(255, 255, 255, 235), text);
         }
         break;
     }

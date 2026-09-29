@@ -63,4 +63,14 @@ void OpenInFileBrowser(const std::filesystem::path& path)
 #endif
 }
 
+void OpenWithDefaultApp(const std::filesystem::path& file)
+{
+#ifdef _WIN32
+    ShellExecuteW(nullptr, L"open", file.wstring().c_str(), nullptr, file.parent_path().wstring().c_str(), SW_SHOWNORMAL);
+#else
+    std::string command = "xdg-open \"" + file.string() + "\" >/dev/null 2>&1 &";
+    [[maybe_unused]] int result = std::system(command.c_str());
+#endif
+}
+
 } // namespace ie::Platform

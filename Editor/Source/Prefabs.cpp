@@ -15,6 +15,14 @@ EntityID EditorApp::InstantiateAsset(const std::string& assetPath, EntityID pare
 {
     fs::path file = Platform::Utf8ToPath(assetPath);
     EntityID root = 0;
+    if (file.extension() == ".cs") {
+        // A script dropped on an object is added to it, like Unity.
+        if (parent)
+            AttachScript(parent, file.stem().string());
+        else
+            Log::Warn("Drop the script on an object to add it");
+        return parent;
+    }
     if (ModelImporter::IsModelFile(file)) {
         if (const ModelAsset* model = GetRenderer().LoadModel(assetPath))
             root = InstantiateModel(m_Scene, *model, parent);
@@ -36,9 +44,11 @@ EntityID EditorApp::InstantiateAsset(const std::string& assetPath, EntityID pare
         m_Scene.SetWorldMatrix(*e, world);
     }
     m_Scene.UpdateWorldTransforms();
-    if (IsPlaying())
+    if (IsPlaying()) {
         for (EntityID id : m_Scene.Subtree(root))
             m_Physics.AddEntity(*m_Scene.Get(id));
+        StartScriptsOf(root);
+    }
     Select(root);
     MarkDirty();
     return root;

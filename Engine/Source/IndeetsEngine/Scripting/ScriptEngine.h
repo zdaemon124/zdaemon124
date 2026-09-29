@@ -13,6 +13,7 @@
 namespace ie {
 
 class PhysicsWorld;
+struct ContactEvent;
 
 struct ScriptDiagnostic {
     bool error = true;
@@ -66,6 +67,8 @@ public:
     void EndPlay();
     bool IsPlaying() const { return m_Playing; }
     void FixedUpdate(float fixedDeltaTime);
+    // OnCollision* / OnTrigger* for the contacts of the physics step that just ran.
+    void DispatchContacts(const std::vector<ContactEvent>& events);
     void Update(float unscaledDeltaTime);
     void LateUpdate();
     float TimeScale();

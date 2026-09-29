@@ -1,6 +1,6 @@
 # IndeetsEngine
 
-Игровой движок в стиле Unity: ядро на C++20 и Vulkan 1.3, физика Jolt, редактор на Dear ImGui. Скрипты на C# в разработке.
+Игровой движок в стиле Unity: ядро на C++20 и Vulkan 1.3, физика Jolt, редактор на Dear ImGui, скрипты на C# с API UnityEngine.
 
 ![Editor](docs/editor.png)
 
@@ -30,6 +30,15 @@
 - Сцены хранятся в JSON (`*.zscene`) в папке `Project/Assets`: File → New / Open / Save / Save As, двойной клик по сцене в Project, запрос о несохранённых изменениях.
 - Project: дерево папок, иконки, навигация, создание папок и сцен, переименование, удаление, «Show in Explorer».
 - Console: все сообщения движка с фильтрами Info / Warnings / Errors.
+
+**C#-скрипты** (подробно — [docs/SCRIPTING.md](docs/SCRIPTING.md))
+- `MonoBehaviour` с API UnityEngine: Unity-скрипты компилируются без изменений в поддерживаемой части (GameObject, Transform, компоненты, корутины, `Invoke`, `Instantiate`/`Destroy`, физика с `OnCollision*`/`OnTrigger*`, `Input` и Input System, математика, `Time`, `PlayerPrefs`...).
+- Жизненный цикл как в Unity: `Awake` → `OnEnable` → `Start` → `FixedUpdate` → `Update` → `LateUpdate` → `OnDisable` → `OnDestroy`, `[DefaultExecutionOrder]`, `[RuntimeInitializeOnLoadMethod]`.
+- Компилятор C# встроен в редактор: сохранили `.cs` — через секунду скрипты перекомпилированы и подгружены без перезапуска; ошибки с файлом и строкой в Console, Play блокируется до исправления.
+- Поля `public` / `[SerializeField]` в Inspector (включая массивы, списки, `[Serializable]`-классы, ссылки на объекты), `[Header]`, `[Range]`, `[Tooltip]`; в Play Mode — живые значения.
+- Project → Create → C# Script, Add Component → Scripts, перетаскивание `.cs` на объект; .NET 8 входит в релизный архив.
+
+![Scripts](docs/editor-scripts.png)
 
 **Движок**
 - Оптимизация: отсечение объектов вне камеры (frustum culling), рендер только видимых панелей, кэш файловой системы в редакторе, без аллокаций на UI каждый кадр.
@@ -65,6 +74,7 @@
 1. Установите:
    - [Visual Studio 2022 или 2026](https://visualstudio.microsoft.com/) с нагрузкой **«Разработка классических приложений на C++»**;
    - [Vulkan SDK](https://vulkan.lunarg.com/sdk/home#windows);
+   - [.NET 8 SDK](https://dotnet.microsoft.com/download/dotnet/8.0) — собирает управляемую часть движка (без него движок соберётся, но C#-скрипты будут отключены);
    - [Git](https://git-scm.com/download/win).
 2. В «Developer PowerShell for VS»:
 
@@ -77,6 +87,7 @@
    ```
 
    Или откройте `build\IndeetsEngine.sln` (`.slnx` для VS 2026) и нажмите F5 — стартовый проект Editor.
+3. Тесты C#-скриптов (без окна): `ctest --test-dir build -C Debug --output-on-failure`.
 
 ## Структура
 
@@ -85,11 +96,14 @@ Engine/Source/IndeetsEngine/
   Core/      Application, Window, Input, Log, Platform
   Renderer/  VulkanContext, Swapchain, Pipeline, Renderer (render targets), Mesh
   Scene/     Scene, Entity, компоненты, Transform, Camera, Primitives, SceneSerializer
-  Physics/   PhysicsWorld (Jolt)
+  Physics/   PhysicsWorld (Jolt), события контактов
+  Scripting/ DotNetHost (hostfxr), ScriptEngine (мост C++ <-> C#, Play Mode)
   UI/        ImGuiLayer
+Engine/ScriptCore/  C#: API UnityEngine, рантайм MonoBehaviour, компилятор (Roslyn)
 Engine/Shaders/  GLSL (Lit, Sky, Grid, Unlit)
 Editor/          редактор
 Sandbox/         демо без редактора
+Tests/           тесты (C#-скрипты без окна)
 ```
 
 ## План
@@ -100,7 +114,7 @@ Sandbox/         демо без редактора
 | 2 | Редактор: Hierarchy, Inspector, Project, Console, Scene/Game, гизмо, сохранение сцен | ✅ |
 | 3 | Физика Jolt: Rigidbody, коллайдеры, Play/Pause/Stop | ✅ |
 | 3.5 | UI: спрайты и текст на экране, импорт файлов | ✅ |
-| 4 | C#-скрипты (.NET 8): `MonoBehaviour`, `Start/Update/OnCollisionEnter`, горячая перезагрузка | ⏳ |
+| 4 | C#-скрипты (.NET 8): API UnityEngine, `MonoBehaviour`, корутины, `OnCollision*`/`OnTrigger*`, горячая перезагрузка | ✅ (ассеты из скриптов — с импортом Unity-проекта) |
 | 5 | Иерархия объектов (parent/child), Undo/Redo, префабы | ✅ |
 | 6 | Материалы и текстуры, загрузка моделей FBX/OBJ/glTF, Inspector ассетов | ✅ (тени — далее) |
 | 7 | Суставы (joints) и регдоллы, декали, сборка игры в .exe | ⏳ |

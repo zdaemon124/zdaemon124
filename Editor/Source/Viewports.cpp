@@ -2,6 +2,8 @@
 
 #include "EditorUI.h"
 
+#include <IndeetsEngine/Scripting/ScriptEngine.h>
+
 #include <glm/gtc/matrix_transform.hpp>
 #include <limits>
 #include <glm/gtc/type_ptr.hpp>
@@ -212,11 +214,15 @@ void EditorApp::DrawGameView()
     ImGui::PopStyleVar();
     m_GameViewVisible = open;
     if (!open) {
+        ScriptEngine::Get().SetViewport({0.0f, 0.0f}, {float(m_GameViewSize.width), float(m_GameViewSize.height)}, false);
         ImGui::End();
         return;
     }
     ImVec2 size = ImGui::GetContentRegionAvail();
     m_GameViewSize = ToExtent(size);
+    // Scripts see the Game view as the screen, and get input only while it has focus (like Unity).
+    ScriptEngine::Get().SetViewport({ImGui::GetCursorScreenPos().x, ImGui::GetCursorScreenPos().y}, {size.x, size.y},
+                                    IsPlaying() && ImGui::IsWindowFocused(ImGuiFocusedFlags_RootAndChildWindows));
     if (m_Scene.MainCamera()) {
         ImVec2 origin = ImGui::GetCursorScreenPos();
         ImGui::Image(ImTextureRef(m_ImGui->Texture(*m_GameTarget)), size);

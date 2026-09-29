@@ -6,6 +6,10 @@ namespace ie {
 
 void EditorApp::DrawConsole()
 {
+    if (m_FocusConsole) {
+        ImGui::SetNextWindowFocus();
+        m_FocusConsole = false;
+    }
     if (!ImGui::Begin("Console")) {
         ImGui::End();
         return;

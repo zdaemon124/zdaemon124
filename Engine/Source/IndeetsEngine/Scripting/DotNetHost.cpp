@@ -147,6 +147,8 @@ std::string Env(const char* name)
 std::vector<std::filesystem::path> DotNetRootCandidates()
 {
     std::vector<std::filesystem::path> roots;
+    // A runtime shipped next to the executable (release builds) needs no installation.
+    roots.push_back(ie::Platform::ExecutableDir() / "dotnet");
     for (const char* name : {"DOTNET_ROOT", "DOTNET_ROOT_X64"})
         if (std::string v = Env(name); !v.empty())
             roots.emplace_back(ie::Platform::Utf8ToPath(v));
@@ -190,9 +192,9 @@ namespace ie {
 
 DotNetHost::~DotNetHost()
 {
-    // The runtime cannot be unloaded from a process; only the host context is released.
-    if (m_Context && m_Close)
-        reinterpret_cast<CloseFn>(m_Close)(m_Context);
+    // Nothing to release: the host context is closed right after start-up (see Initialize), and the
+    // runtime itself cannot be unloaded from a process. Closing here, from a static destructor, would
+    // touch hostfxr after its own statics were torn down at exit (a double free).
 }
 
 bool DotNetHost::LoadHostFxr()
@@ -249,6 +251,9 @@ bool DotNetHost::Initialize(const std::filesystem::path& runtimeConfig)
     void* loadAssembly = nullptr;
     rc = reinterpret_cast<GetDelegateFn>(m_GetDelegate)(m_Context, hdt_load_assembly_and_get_function_pointer,
                                                          &loadAssembly);
+    // The runtime keeps running after the context is closed; the delegate stays valid.
+    reinterpret_cast<CloseFn>(m_Close)(m_Context);
+    m_Context = nullptr;
     if (rc < 0 || !loadAssembly) {
         m_Error = "Could not get the .NET assembly loader delegate";
         return false;

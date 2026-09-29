@@ -18,5 +18,7 @@ std::filesystem::path Utf8ToPath(const std::string& utf8);
 
 // Opens a folder (or the folder containing a file) in the system file manager.
 void OpenInFileBrowser(const std::filesystem::path& path);
+// Opens a file with the application registered for it (e.g. a .cs file in the code editor).
+void OpenWithDefaultApp(const std::filesystem::path& file);
 
 } // namespace ie::Platform

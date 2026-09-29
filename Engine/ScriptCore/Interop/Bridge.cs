@@ -165,6 +165,14 @@ namespace IndeetsEngine.Interop
             catch (Exception e) { Report(e); }
         }
 
+        /// <summary>Collision / trigger contacts of the physics step that just ran.</summary>
+        [UnmanagedCallersOnly]
+        public static void DispatchContacts(ContactEvent* events, int count)
+        {
+            try { World.DispatchContacts(events, count); }
+            catch (Exception e) { Report(e); }
+        }
+
         [UnmanagedCallersOnly]
         public static void LateUpdate()
         {

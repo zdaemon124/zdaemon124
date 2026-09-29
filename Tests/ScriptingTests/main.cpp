@@ -140,6 +140,17 @@ int main(int argc, char** argv)
     ball.scripts.push_back({"PhysicsProbe", true, "{}"});
 
     scene.CreateEntity("Math").scripts.push_back({"MathChecks", true, "{}"});
+
+    Entity& crate = scene.CreatePrimitive(PrimitiveType::Cube, "Crate");
+    crate.transform.position = {3.0f, 6.0f, 3.0f};
+    crate.rigidbody = RigidbodyComponent{};
+    crate.scripts.push_back({"ContactProbe", true, "{}"});
+    Entity& zone = scene.CreateEntity("Zone");
+    zone.transform.position = {3.0f, 3.0f, 3.0f};
+    zone.collider = ColliderComponent{};
+    zone.collider->size = {3.0f, 1.0f, 3.0f};
+    zone.collider->isTrigger = true;
+    zone.scripts.push_back({"TriggerZone", true, "{}"});
     scene.CreateEntity("Missing").scripts.push_back({"NoSuchScript", true, "{}"});
     scene.UpdateWorldTransforms();
 
@@ -149,7 +160,9 @@ int main(int argc, char** argv)
     Expect(scripts.BeginPlay(scene, &physics), "BeginPlay");
     const float dt = 1.0f / 60.0f;
     for (int frame = 1; frame <= 90; ++frame) {
-        physics.Update(scene, dt * scripts.TimeScale(), [&] { scripts.FixedUpdate(PhysicsWorld::kFixedTimeStep); });
+        physics.Update(
+            scene, dt * scripts.TimeScale(), [&] { scripts.FixedUpdate(PhysicsWorld::kFixedTimeStep); },
+            [&](const std::vector<ContactEvent>& contacts) { scripts.DispatchContacts(contacts); });
         scripts.Update(dt);
         scripts.LateUpdate();
     }

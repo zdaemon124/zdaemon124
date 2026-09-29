@@ -6,9 +6,9 @@
 namespace ie {
 
 // Hosts the .NET runtime through hostfxr (the same way `dotnet app.dll` does).
-// hostfxr is found at run time in the installed .NET (DOTNET_ROOT, the standard install
-// folders or `dotnet` on PATH), so building the engine needs no .NET SDK and players
-// only need the .NET 8+ runtime.
+// hostfxr is found at run time: first in a "dotnet" folder next to the executable (release
+// packages ship the runtime there), then in the installed .NET (DOTNET_ROOT, the standard
+// install folders or `dotnet` on PATH). No .NET "nethost" package is needed to build.
 class DotNetHost {
 public:
     DotNetHost() = default;

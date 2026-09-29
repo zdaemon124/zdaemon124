@@ -16,6 +16,19 @@ namespace IndeetsEngine.Interop
         Camera = 5,
     }
 
+    /// <summary>A physics contact; layout of ie::ContactEvent (PhysicsWorld.h).</summary>
+    [StructLayout(LayoutKind.Sequential)]
+    public struct ContactEvent
+    {
+        public uint A;
+        public uint B;
+        public int Type;     // 0 enter, 1 stay, 2 exit
+        public int Trigger;
+        public float PointX, PointY, PointZ;
+        public float NormalX, NormalY, NormalZ;          // from A to B
+        public float VelocityX, VelocityY, VelocityZ;    // B relative to A
+    }
+
     /// <summary>
     /// Function table the native engine hands to <see cref="Bridge.Initialize"/>.
     /// The field order is the ABI: it must match ie::ScriptNativeApi exactly.

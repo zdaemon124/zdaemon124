@@ -56,6 +56,16 @@ void EditorApp::DrawInspector()
             MarkDirty();
         if (IsPlaying())
             ImGui::TextDisabled("Play mode: changes will be reverted when you press Stop.");
+        // Drop a script from the Project panel anywhere below the components to add it.
+        ImGui::Dummy(ImVec2(ImGui::GetContentRegionAvail().x, std::max(40.0f, ImGui::GetContentRegionAvail().y)));
+        if (ImGui::BeginDragDropTarget()) {
+            if (const ImGuiPayload* payload = ImGui::AcceptDragDropPayload("IE_ASSET")) {
+                std::filesystem::path asset = Platform::Utf8ToPath(static_cast<const char*>(payload->Data));
+                if (asset.extension() == ".cs")
+                    AttachScript(m_Selected, asset.stem().string());
+            }
+            ImGui::EndDragDropTarget();
+        }
     } else {
         DrawSceneSettings();
     }
@@ -243,6 +253,8 @@ bool EditorApp::DrawEntityInspector(Entity& entity)
         if (!keep) { e->uiText.reset(); changed = true; }
     }
 
+    changed |= DrawScriptComponents(*e);
+
     // Add Component.
     ImGui::Spacing();
     ImGui::Separator();
@@ -285,6 +297,8 @@ bool EditorApp::DrawEntityInspector(Entity& entity)
             changed = true;
         }
         if (!e->rectTransform && ImGui::MenuItem("Rect Transform")) { e->rectTransform = RectTransform{}; changed = true; }
+        ImGui::Separator();
+        DrawAddScriptMenu(*e, changed);
         ImGui::EndPopup();
     }
     ImGui::PopID();

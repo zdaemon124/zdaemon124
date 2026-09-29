@@ -3,6 +3,7 @@
 #include "EditorUI.h"
 
 #include <IndeetsEngine/Core/Platform.h>
+#include <IndeetsEngine/Scripting/ScriptEngine.h>
 
 #include <imgui_internal.h>
 
@@ -66,6 +67,7 @@ void EditorApp::OnStart()
     }
 
     ResetUndo();
+    InitScripting();
     if (std::find(Args().begin(), Args().end(), "--play") != Args().end())
         Play();
 }
@@ -89,13 +91,33 @@ bool EditorApp::OnCloseRequested()
 void EditorApp::OnUpdate(float deltaTime)
 {
     m_EditorCamera.Update(SmoothDeltaTime(), m_SceneViewHovered);
+    UpdateScripting();
 
+    // Unity's frame: FixedUpdate + physics steps, then Update, coroutines and LateUpdate.
+    ScriptEngine& scripts = ScriptEngine::Get();
     if (m_PlayState == PlayState::Playing) {
-        m_Physics.Update(m_Scene, deltaTime);
+        m_Physics.Update(
+            m_Scene, deltaTime * scripts.TimeScale(), [&] { scripts.FixedUpdate(PhysicsWorld::kFixedTimeStep); },
+            [&](const std::vector<ContactEvent>& contacts) { scripts.DispatchContacts(contacts); });
+        scripts.Update(deltaTime);
+        scripts.LateUpdate();
     } else if (m_PlayState == PlayState::Paused && m_StepRequested) {
-        m_Physics.StepOnce(m_Scene);
+        scripts.FixedUpdate(PhysicsWorld::kFixedTimeStep);
+        m_Scene.UpdateWorldTransforms();
+        m_Physics.StepOnce(m_Scene, [&](const std::vector<ContactEvent>& contacts) { scripts.DispatchContacts(contacts); });
+        scripts.Update(PhysicsWorld::kFixedTimeStep);
+        scripts.LateUpdate();
     }
     m_StepRequested = false;
+    if (IsPlaying()) {
+        // Esc gives the mouse back to the editor when a script locked the cursor, like Unity.
+        if (Input::GetKeyDown(Key::Escape))
+            Input::SetCursorLocked(false);
+        if (scripts.ConsumeQuitRequest()) {
+            Log::Info("Application.Quit() called: leaving Play Mode");
+            Stop();
+        }
+    }
     UpdateTitle();
 }
 
@@ -334,9 +356,17 @@ void EditorApp::DrawToolbar()
             TogglePause();
         ImGui::SameLine();
         ImGui::BeginDisabled(m_PlayState != PlayState::Paused);
-        if (UI::IconButton("step", UI::Icon::Step, false, "Step one physics frame"))
+        if (UI::IconButton("step", UI::Icon::Step, false, "Step one frame"))
             m_StepRequested = true;
         ImGui::EndDisabled();
+
+        ScriptEngine& scripts = ScriptEngine::Get();
+        ImGui::SameLine(0.0f, 16.0f);
+        ImGui::AlignTextToFramePadding();
+        if (scripts.IsCompiling() || m_ScriptsDirty)
+            ImGui::TextDisabled(m_PlayAfterCompile ? "Compiling scripts, Play Mode will start..." : "Compiling scripts...");
+        else if (scripts.HasCompileErrors())
+            ImGui::TextColored(ImVec4(1.0f, 0.4f, 0.35f, 1.0f), "Script compile errors (see Console)");
     }
     ImGui::End();
     ImGui::PopStyleVar();
@@ -615,17 +645,31 @@ void EditorApp::Play()
 {
     if (IsPlaying())
         return;
+    ScriptEngine& scripts = ScriptEngine::Get();
+    if (scripts.IsAvailable()) {
+        if (scripts.IsCompiling() || m_ScriptsDirty) {
+            m_PlayAfterCompile = true; // Play Mode starts as soon as the scripts are compiled
+            return;
+        }
+        if (scripts.HasCompileErrors()) {
+            Log::Error("All compiler errors have to be fixed before you can enter Play Mode!");
+            m_FocusConsole = true;
+            return;
+        }
+    }
     m_EditSnapshot = SceneSerializer::ToString(m_Scene);
     m_Physics.Start(m_Scene);
     m_PlayState = PlayState::Playing;
     m_FocusGameView = true;
     Log::Info("Entered play mode ({} physics bodies)", m_Physics.BodyCount());
+    scripts.BeginPlay(m_Scene, &m_Physics);
 }
 
 void EditorApp::Stop()
 {
     if (!IsPlaying())
         return;
+    ScriptEngine::Get().EndPlay();
     m_Physics.Stop();
     SceneSerializer::FromString(m_Scene, m_EditSnapshot);
     m_EditSnapshot.clear();
@@ -659,7 +703,14 @@ void EditorApp::DeleteSelected()
 {
     if (!Selected())
         return;
-    m_Scene.DestroyEntity(m_Selected);
+    if (IsPlaying() && ScriptEngine::Get().IsPlaying()) {
+        ScriptEngine::Get().DestroyEntity(m_Selected); // runs OnDisable / OnDestroy, removes bodies
+    } else {
+        if (IsPlaying())
+            for (EntityID id : m_Scene.Subtree(m_Selected))
+                m_Physics.RemoveEntity(id);
+        m_Scene.DestroyEntity(m_Selected);
+    }
     m_Selected = 0;
     MarkDirty();
 }
@@ -668,10 +719,14 @@ void EditorApp::DuplicateSelected()
 {
     if (!Selected())
         return;
-    Entity& copy = m_Scene.Duplicate(m_Selected);
-    if (IsPlaying())
-        m_Physics.AddEntity(copy);
-    m_Selected = copy.id;
+    EntityID copy = m_Scene.Duplicate(m_Selected).id;
+    if (IsPlaying()) {
+        m_Scene.UpdateWorldTransforms();
+        for (EntityID id : m_Scene.Subtree(copy))
+            m_Physics.AddEntity(*m_Scene.Get(id));
+        StartScriptsOf(copy);
+    }
+    m_Selected = copy;
     MarkDirty();
 }
 

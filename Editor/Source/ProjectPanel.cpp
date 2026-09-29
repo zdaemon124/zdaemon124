@@ -130,11 +130,14 @@ void EditorApp::DrawProject()
                         CreatePrefab(*static_cast<const EntityID*>(payload->Data), entry.path);
                     ImGui::EndDragDropTarget();
                 }
+                bool isScript = entry.path.extension() == ".cs";
                 if (hovered && ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left)) {
                     if (entry.directory)
                         navigateTo = entry.path;
                     else if (isScene)
                         pendingOpenScene = entry.path;
+                    else if (isScript)
+                        Platform::OpenWithDefaultApp(entry.path);
                 }
                 bool isImage = !entry.directory && ImageIO::IsImageFile(entry.path);
                 bool isModel = !entry.directory && ModelImporter::IsModelFile(entry.path);
@@ -159,6 +162,7 @@ void EditorApp::DrawProject()
                                     : isScene      ? UI::Icon::Scene
                                     : isModel      ? UI::Icon::Model
                                     : isPrefab     ? UI::Icon::Prefab
+                                    : isScript     ? UI::Icon::Script
                                                    : UI::Icon::File;
                     UI::DrawIcon(ImGui::GetWindowDrawList(), icon, pos, {pos.x + m_ProjectIconSize, pos.y + m_ProjectIconSize},
                                  IM_COL32_WHITE);
@@ -172,6 +176,8 @@ void EditorApp::DrawProject()
                             navigateTo = entry.path;
                         else if (isScene)
                             pendingOpenScene = entry.path;
+                        else if (isScript)
+                            Platform::OpenWithDefaultApp(entry.path);
                     }
                     if (ImGui::MenuItem("Rename")) {
                         m_ProjectRenaming = entry.path;
@@ -202,6 +208,8 @@ void EditorApp::DrawProject()
                                 Log::Error("Rename failed: {}", ec.message());
                             else if (m_ScenePath == entry.path)
                                 m_ScenePath = target;
+                            else if (!ec && entry.path.extension() == ".cs")
+                                OnScriptRenamed(entry.path, target);
                         }
                         m_ProjectRenaming.clear();
                     }
@@ -251,6 +259,12 @@ void EditorApp::DrawProject()
                     fs::path path = UniquePath(m_ProjectCurrentDir, "New Scene", ".zscene");
                     SceneSerializer::Save(empty, path);
         InvalidateProjectCache();
+                    m_ProjectRenaming = path;
+                    m_ProjectRenameBuffer = path.stem().string();
+                }
+                if (ImGui::MenuItem("C# Script", nullptr, false, !IsPlaying())) {
+                    // Renaming right away also renames the class, so name it now like in Unity.
+                    fs::path path = CreateScriptAsset(m_ProjectCurrentDir, "NewBehaviourScript");
                     m_ProjectRenaming = path;
                     m_ProjectRenameBuffer = path.stem().string();
                 }

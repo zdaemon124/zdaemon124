@@ -30,6 +30,9 @@ namespace IndeetsEngine.Runtime
     {
         public MethodInfo Awake, OnEnable, Start, Update, LateUpdate, FixedUpdate, OnDisable, OnDestroy,
             OnApplicationQuit, OnApplicationPause, OnApplicationFocus;
+        // Physics messages, indexed [trigger ? 1 : 0, enter/stay/exit].
+        public readonly MethodInfo[,] Contact = new MethodInfo[2, 3];
+        public bool HasContactMessages;
         public int ExecutionOrder;
     }
 
@@ -425,6 +428,20 @@ namespace IndeetsEngine.Runtime
                 OnApplicationFocus = FindMethod(type, "OnApplicationFocus", 1),
                 ExecutionOrder = type.GetCustomAttribute<DefaultExecutionOrder>(true)?.order ?? 0,
             };
+            string[,] contactNames =
+            {
+                { "OnCollisionEnter", "OnCollisionStay", "OnCollisionExit" },
+                { "OnTriggerEnter", "OnTriggerStay", "OnTriggerExit" },
+            };
+            for (int t = 0; t < 2; t++)
+            {
+                for (int k = 0; k < 3; k++)
+                {
+                    // Unity accepts the message with its argument or without any.
+                    m.Contact[t, k] = FindMethod(type, contactNames[t, k], 1) ?? FindMethod(type, contactNames[t, k], 0);
+                    m.HasContactMessages |= m.Contact[t, k] != null;
+                }
+            }
             // Update/LateUpdate/FixedUpdate must be void and parameterless to be bound as Action.
             if (m.Update != null && m.Update.ReturnType != typeof(void)) m.Update = null;
             if (m.LateUpdate != null && m.LateUpdate.ReturnType != typeof(void)) m.LateUpdate = null;
@@ -797,6 +814,90 @@ namespace IndeetsEngine.Runtime
             bool q = s_QuitRequested;
             s_QuitRequested = false;
             return q;
+        }
+
+        // ================================================================ physics messages
+
+        /// <summary>
+        /// Sends OnCollision* / OnTrigger* for a batch of contacts from one physics step. Each side
+        /// gets the message on the collider's object and, if different, on the object with its
+        /// Rigidbody; disabled scripts receive them too, like in Unity.
+        /// </summary>
+        public static void DispatchContacts(ContactEvent* events, int count)
+        {
+            for (int i = 0; i < count; i++)
+            {
+                ContactEvent e = events[i];
+                GameObject a = GetGameObject(e.A), b = GetGameObject(e.B);
+                if (a == null || b == null)
+                    continue;
+                var point = new Vector3(e.PointX, e.PointY, e.PointZ);
+                var normal = new Vector3(e.NormalX, e.NormalY, e.NormalZ);
+                var velocity = new Vector3(e.VelocityX, e.VelocityY, e.VelocityZ);
+                bool trigger = e.Trigger != 0;
+                Deliver(a, b, trigger, e.Type, point, -normal, velocity);
+                if (a != null && b != null)
+                    Deliver(b, a, trigger, e.Type, point, normal, -velocity);
+            }
+        }
+
+        private static readonly List<GameObject> s_ContactTargets = new List<GameObject>(2);
+
+        private static void Deliver(GameObject self, GameObject other, bool trigger, int type, Vector3 point,
+                                    Vector3 normal, Vector3 relativeVelocity)
+        {
+            s_ContactTargets.Clear();
+            s_ContactTargets.Add(self);
+            if (GetBuiltin(self, typeof(Rigidbody)) == null && self.transform.parent != null)
+            {
+                Rigidbody body = self.transform.parent.GetComponentInParent<Rigidbody>(true);
+                if (body != null && body.gameObject != self)
+                    s_ContactTargets.Add(body.gameObject);
+            }
+
+            Collider selfCollider = null, otherCollider = null;
+            Collision collision = null;
+            foreach (GameObject target in s_ContactTargets)
+            {
+                if (!s_Components.TryGetValue(target.m_Id, out List<Component> list))
+                    continue;
+                foreach (Component c in list.ToArray())
+                {
+                    if (!(c is MonoBehaviour mb) || mb.m_Destroyed || mb.m_State == null || !mb.m_State.Awoken)
+                        continue;
+                    MethodInfo method = mb.m_State.Methods.Contact[trigger ? 1 : 0, type];
+                    if (method == null)
+                        continue;
+                    object[] args = null;
+                    if (method.GetParameters().Length == 1)
+                    {
+                        otherCollider ??= other.GetComponent<Collider>();
+                        if (trigger)
+                        {
+                            args = new object[] { otherCollider };
+                        }
+                        else
+                        {
+                            selfCollider ??= self.GetComponent<Collider>();
+                            Rigidbody otherBody = otherCollider != null ? otherCollider.attachedRigidbody : null;
+                            collision ??= new Collision
+                            {
+                                m_Other = otherBody != null ? otherBody.gameObject : other,
+                                m_Collider = otherCollider,
+                                m_RelativeVelocity = relativeVelocity,
+                                m_Contacts = new[]
+                                {
+                                    new ContactPoint { m_Point = point, m_Normal = normal, m_This = selfCollider, m_Other = otherCollider },
+                                },
+                            };
+                            args = new object[] { collision };
+                        }
+                    }
+                    Call(mb, method, args);
+                    if (!self || !other)
+                        return;
+                }
+            }
         }
 
         // ================================================================ destruction

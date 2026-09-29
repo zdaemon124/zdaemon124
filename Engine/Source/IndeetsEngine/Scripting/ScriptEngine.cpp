@@ -79,6 +79,7 @@ struct ManagedApi {
     int (*DescribeScripts)() = nullptr;
     int (*BeginPlay)(const char* scene) = nullptr;
     void (*FixedUpdate)(float fixedDeltaTime) = nullptr;
+    void (*DispatchContacts)(const ContactEvent* events, int count) = nullptr;
     void (*Update)(float unscaledDeltaTime) = nullptr;
     void (*LateUpdate)() = nullptr;
     void (*EndPlay)() = nullptr;
@@ -821,6 +822,7 @@ bool ScriptEngine::Initialize(bool isEditor, const std::filesystem::path& manage
               Resolve(assembly, "DescribeScripts", g_Managed.DescribeScripts) &&
               Resolve(assembly, "BeginPlay", g_Managed.BeginPlay) &&
               Resolve(assembly, "FixedUpdate", g_Managed.FixedUpdate) &&
+              Resolve(assembly, "DispatchContacts", g_Managed.DispatchContacts) &&
               Resolve(assembly, "Update", g_Managed.Update) &&
               Resolve(assembly, "LateUpdate", g_Managed.LateUpdate) &&
               Resolve(assembly, "EndPlay", g_Managed.EndPlay) &&
@@ -1011,6 +1013,15 @@ void ScriptEngine::FixedUpdate(float fixedDeltaTime)
 {
     if (m_Playing)
         g_Managed.FixedUpdate(fixedDeltaTime);
+}
+
+void ScriptEngine::DispatchContacts(const std::vector<ContactEvent>& events)
+{
+    static_assert(sizeof(ContactEvent) == 52, "ContactEvent layout is shared with IndeetsEngine.Interop.ContactEvent");
+    if (m_Playing && !events.empty()) {
+        g_Managed.DispatchContacts(events.data(), static_cast<int>(events.size()));
+        g_Scene->UpdateWorldTransforms();
+    }
 }
 
 void ScriptEngine::Update(float unscaledDeltaTime)

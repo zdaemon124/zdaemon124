@@ -60,6 +60,19 @@ private:
     void Undo();
     void Redo();
     void DrawSceneSettings();      // InspectorPanel.cpp
+    // C# scripts (ScriptInspector.cpp)
+    void InitScripting();
+    void UpdateScripting();        // finishes compiles, recompiles changed scripts
+    void RecompileScripts();
+    uint64_t ScriptSignature() const;
+    bool DrawScriptComponents(Entity& entity);
+    void DrawAddScriptMenu(Entity& entity, bool& changed);
+    std::filesystem::path CreateScriptAsset(const std::filesystem::path& folder, const std::string& baseName);
+    void OnScriptRenamed(const std::filesystem::path& oldPath, const std::filesystem::path& newPath);
+    std::filesystem::path FindScriptFile(const std::string& className) const;
+    void AttachScript(EntityID id, const std::string& className);
+    // Starts the scripts of entities added while playing (duplicates, instantiated prefabs).
+    void StartScriptsOf(EntityID root);
     void DrawProject();            // ProjectPanel.cpp
     void DrawConsole();            // ConsolePanel.cpp
     bool m_HierarchyFocused = false;
@@ -191,7 +204,12 @@ private:
     std::string m_UndoBaseline;
     bool m_UndoPending = false;
 
-    // Game view UI editing
+    // Scripts
+    uint64_t m_ScriptSignature = 0;
+    double m_ScriptScanTime = 0.0;
+    bool m_ScriptsDirty = false;
+    bool m_PlayAfterCompile = false;
+    bool m_FocusConsole = false;
 
     // UI panel
     std::unique_ptr<RenderTarget> m_UITarget;
