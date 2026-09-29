@@ -52,6 +52,11 @@ FetchContent_Declare(nlohmann_json
     GIT_SHALLOW    TRUE
     SOURCE_SUBDIR  _none)
 
+FetchContent_Declare(stb
+    GIT_REPOSITORY https://github.com/nothings/stb.git
+    GIT_TAG        2c980bb59875b0d32144a71867fbdebb2f77cd20
+    SOURCE_SUBDIR  _none)
+
 # Jolt Physics (the CMake project lives in the Build/ subfolder).
 set(TARGET_UNIT_TESTS         OFF CACHE BOOL "" FORCE)
 set(TARGET_HELLO_WORLD        OFF CACHE BOOL "" FORCE)
@@ -70,7 +75,7 @@ FetchContent_Declare(jolt
     GIT_SHALLOW    TRUE
     SOURCE_SUBDIR  Build)
 
-FetchContent_MakeAvailable(vulkan_headers volk vma glm glfw imgui imguizmo nlohmann_json jolt)
+FetchContent_MakeAvailable(vulkan_headers volk vma glm glfw imgui imguizmo nlohmann_json stb jolt)
 
 # volk: Vulkan function loader (no link against vulkan-1.lib needed).
 add_library(volk STATIC ${volk_SOURCE_DIR}/volk.c)
@@ -100,6 +105,9 @@ add_library(imgui STATIC
 target_include_directories(imgui PUBLIC ${imgui_SOURCE_DIR} ${imgui_SOURCE_DIR}/backends ${imgui_SOURCE_DIR}/misc/cpp ${imguizmo_SOURCE_DIR}/src)
 target_compile_definitions(imgui PUBLIC IMGUI_IMPL_VULKAN_USE_VOLK IMGUI_DISABLE_OBSOLETE_FUNCTIONS GLFW_INCLUDE_NONE)
 target_link_libraries(imgui PUBLIC volk glfw)
+
+add_library(stb_headers INTERFACE)
+target_include_directories(stb_headers SYSTEM INTERFACE ${stb_SOURCE_DIR})
 
 add_library(json_headers INTERFACE)
 target_include_directories(json_headers SYSTEM INTERFACE ${nlohmann_json_SOURCE_DIR}/single_include)

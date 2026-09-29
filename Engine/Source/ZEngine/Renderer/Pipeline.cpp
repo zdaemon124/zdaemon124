@@ -43,12 +43,19 @@ VkPipeline CreateGraphicsPipeline(VkDevice device, const GraphicsPipelineDesc& d
         {1, 0, VK_FORMAT_R32G32B32_SFLOAT, offsetof(Vertex, normal)},
         {2, 0, VK_FORMAT_R32G32_SFLOAT, offsetof(Vertex, uv)},
     }};
+    VkVertexInputBindingDescription uiBinding{0, sizeof(UIVertex), VK_VERTEX_INPUT_RATE_VERTEX};
+    std::array<VkVertexInputAttributeDescription, 3> uiAttributes{{
+        {0, 0, VK_FORMAT_R32G32_SFLOAT, offsetof(UIVertex, position)},
+        {1, 0, VK_FORMAT_R32G32_SFLOAT, offsetof(UIVertex, uv)},
+        {2, 0, VK_FORMAT_R32G32B32A32_SFLOAT, offsetof(UIVertex, color)},
+    }};
     VkPipelineVertexInputStateCreateInfo vertexInput{VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO};
-    if (desc.meshVertexInput) {
+    if (desc.vertexLayout != VertexLayout::None) {
+        bool ui = desc.vertexLayout == VertexLayout::UI;
         vertexInput.vertexBindingDescriptionCount = 1;
-        vertexInput.pVertexBindingDescriptions = &binding;
-        vertexInput.vertexAttributeDescriptionCount = static_cast<uint32_t>(attributes.size());
-        vertexInput.pVertexAttributeDescriptions = attributes.data();
+        vertexInput.pVertexBindingDescriptions = ui ? &uiBinding : &binding;
+        vertexInput.vertexAttributeDescriptionCount = 3;
+        vertexInput.pVertexAttributeDescriptions = ui ? uiAttributes.data() : attributes.data();
     }
 
     VkPipelineInputAssemblyStateCreateInfo inputAssembly{VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO};

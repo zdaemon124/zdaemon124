@@ -111,6 +111,14 @@ void DrawIcon(ImDrawList* d, Icon icon, ImVec2 min, ImVec2 max, ImU32 col)
         d->AddTriangleFilled({c.x + a * 0.35f, c.y}, {c.x + a, c.y - a * 0.5f}, {c.x + a, c.y + a * 0.5f}, cam);
         break;
     }
+    case Icon::Image: {
+        float a = r * 0.75f;
+        d->AddRect({c.x - a, c.y - a * 0.75f}, {c.x + a, c.y + a * 0.75f}, IM_COL32(120, 200, 150, 255), 2.0f, t * 0.8f);
+        d->AddTriangleFilled({c.x - a * 0.7f, c.y + a * 0.55f}, {c.x - a * 0.1f, c.y - a * 0.2f},
+                             {c.x + a * 0.4f, c.y + a * 0.55f}, IM_COL32(120, 200, 150, 255));
+        d->AddCircleFilled({c.x + a * 0.45f, c.y - a * 0.3f}, a * 0.18f, IM_COL32(120, 200, 150, 255));
+        break;
+    }
     case Icon::Empty:
         d->AddCircle(c, r * 0.45f, col, 12, t * 0.8f);
         break;

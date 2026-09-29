@@ -27,6 +27,14 @@ struct Entity {
     std::optional<RigidbodyComponent> rigidbody;
     std::optional<LightComponent> light;
     std::optional<CameraComponent> camera;
+    std::optional<UIImageComponent> uiImage;
+    std::optional<UITextComponent> uiText;
+
+    // Screen-space UI element with no 3D presence (its Transform is unused).
+    bool IsUIOnly() const
+    {
+        return (uiImage || uiText) && !meshRenderer && !collider && !rigidbody && !light && !camera;
+    }
 };
 
 struct SceneSettings {
@@ -34,6 +42,7 @@ struct SceneSettings {
     glm::vec3 groundAmbient{0.32f, 0.3f, 0.28f};  // sRGB
     float ambientIntensity = 1.0f;
     glm::vec3 gravity{0.0f, -9.81f, 0.0f};
+    glm::vec2 uiReferenceResolution{1920.0f, 1080.0f};
 };
 
 class Scene {

@@ -35,6 +35,17 @@ std::vector<char> ReadBinaryFile(const std::filesystem::path& path)
     return data;
 }
 
+std::string PathToUtf8(const std::filesystem::path& path)
+{
+    std::u8string u8 = path.generic_u8string();
+    return std::string(u8.begin(), u8.end());
+}
+
+std::filesystem::path Utf8ToPath(const std::string& utf8)
+{
+    return std::filesystem::path(std::u8string(utf8.begin(), utf8.end()));
+}
+
 void OpenInFileBrowser(const std::filesystem::path& path)
 {
     std::filesystem::path folder = std::filesystem::is_directory(path) ? path : path.parent_path();

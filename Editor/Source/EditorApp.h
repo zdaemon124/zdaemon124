@@ -47,6 +47,16 @@ private:
     void DrawSceneView();          // Viewports.cpp
     void DrawGameView();           // Viewports.cpp
     void DrawStats();              // Viewports.cpp
+    void DrawSceneToolbar();       // Viewports.cpp
+    void DrawGameViewUIOverlay(ImVec2 origin, ImVec2 size, bool hovered); // Viewports.cpp
+    void DrawUIRectProperties(UIRect& rect, bool& changed);                // InspectorPanel.cpp
+    bool DrawSpriteField(std::string& sprite);                              // InspectorPanel.cpp
+    void CreateSampleSprites();    // UIObjects.cpp
+    Entity& CreateUIImage(const std::string& sprite, glm::vec2 position);   // UIObjects.cpp
+    Entity& CreateUIText(const std::string& text);                          // UIObjects.cpp
+    void CreateSampleHUD();        // UIObjects.cpp
+    void ImportFiles(const std::vector<std::filesystem::path>& files);      // ProjectPanel.cpp
+    std::vector<std::string> ListImageAssets() const;                       // ProjectPanel.cpp
 
     // ---- Scene management
     void NewScene();
@@ -125,6 +135,9 @@ private:
     std::filesystem::path m_ProjectRenaming;
     std::string m_ProjectRenameBuffer;
     std::filesystem::path m_ProjectPendingDelete;
+
+    // Game view UI editing
+    bool m_DraggingUI = false;
 
     // Console
     bool m_ConsoleShowInfo = true;

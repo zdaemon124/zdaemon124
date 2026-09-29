@@ -2,6 +2,7 @@
 
 #include "ZEngine/Core/Input.h"
 #include "ZEngine/Core/Log.h"
+#include "ZEngine/Core/Platform.h"
 
 #include <GLFW/glfw3.h>
 
@@ -25,6 +26,15 @@ Window::Window(const WindowDesc& desc)
     glfwSetWindowUserPointer(m_Window, this);
     glfwSetFramebufferSizeCallback(m_Window, [](GLFWwindow* w, int, int) {
         static_cast<Window*>(glfwGetWindowUserPointer(w))->m_Resized = true;
+    });
+    glfwSetDropCallback(m_Window, [](GLFWwindow* w, int count, const char** paths) {
+        auto* self = static_cast<Window*>(glfwGetWindowUserPointer(w));
+        if (!self->onFileDrop)
+            return;
+        std::vector<std::filesystem::path> files;
+        for (int i = 0; i < count; ++i)
+            files.push_back(Platform::Utf8ToPath(paths[i]));
+        self->onFileDrop(files);
     });
     Input::Detail::Attach(m_Window);
 }

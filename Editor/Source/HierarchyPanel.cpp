@@ -12,6 +12,7 @@ namespace {
 UI::Icon EntityIcon(const Entity& e)
 {
     if (e.camera) return UI::Icon::Camera;
+    if (e.uiImage || e.uiText) return UI::Icon::Image;
     if (e.light) return UI::Icon::Light;
     if (e.meshRenderer) return UI::Icon::Cube;
     return UI::Icon::Empty;
@@ -46,6 +47,16 @@ void EditorApp::DrawCreateMenuItems()
             e.transform.position = {0.0f, 3.0f, 0.0f};
             e.transform.SetEulerAngles({50.0f, -30.0f, 0.0f});
         }
+        ImGui::EndMenu();
+    }
+    if (ImGui::BeginMenu("UI")) {
+        if (ImGui::MenuItem("Image"))
+            CreateUIImage("", {0.0f, 0.0f});
+        if (ImGui::MenuItem("Text"))
+            CreateUIText("New Text");
+        ImGui::Separator();
+        if (ImGui::MenuItem("Sample HUD (orbs + action bar)"))
+            CreateSampleHUD();
         ImGui::EndMenu();
     }
     if (ImGui::MenuItem("Camera")) {

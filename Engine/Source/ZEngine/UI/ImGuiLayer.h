@@ -11,6 +11,7 @@ namespace ze {
 class Window;
 class Renderer;
 struct RenderTarget;
+struct Texture;
 
 // Dear ImGui integration (GLFW + Vulkan dynamic rendering) with an editor theme.
 class ImGuiLayer {
@@ -28,8 +29,11 @@ public:
     // Texture handle for showing a render target with ImGui::Image.
     ImTextureID Texture(RenderTarget& target);
     void ReleaseTexture(RenderTarget& target);
+    // Texture handle for showing a loaded texture (sprite previews).
+    ImTextureID Texture(ze::Texture& texture);
 
 private:
+    ImTextureID TextureFor(VkImageView view, VkImageView& cachedView, VkDescriptorSet& cachedSet);
     void ApplyTheme();
     void LoadFonts();
 

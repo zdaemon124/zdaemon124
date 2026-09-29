@@ -6,6 +6,7 @@
 #include "ZEngine/Renderer/Swapchain.h"
 #include "ZEngine/Renderer/VulkanContext.h"
 #include "ZEngine/Scene/Scene.h"
+#include "ZEngine/Scene/UILayout.h"
 
 #include <glm/gtc/matrix_transform.hpp>
 
@@ -50,8 +51,10 @@ Renderer::Renderer(Window& window, const RendererSettings& settings)
     uint32_t width = 0, height = 0;
     window.GetFramebufferSize(width, height);
     m_Swapchain = std::make_unique<Swapchain>(*m_Context, VkExtent2D{width, height}, settings.vsync);
+    m_AssetRoot = Platform::ExecutableDir() / "Project" / "Assets";
     CreateFrameResources();
     CreateDescriptors();
+    CreateTextureResources();
     CreatePipelines();
 
     for (size_t i = 0; i < m_Primitives.size(); ++i) {
@@ -67,13 +70,21 @@ Renderer::~Renderer()
 
     if (m_ScreenTarget)
         DestroyRenderTarget(*m_ScreenTarget);
+    m_DefaultFont.reset();
+    for (auto& [name, texture] : m_Textures)
+        m_Context->DestroyImage(texture->image);
+    m_Textures.clear();
+    vkDestroySampler(device, m_LinearSampler, nullptr);
+    vkDestroyDescriptorPool(device, m_TexturePool, nullptr);
+    vkDestroyDescriptorSetLayout(device, m_TextureSetLayout, nullptr);
+    vkDestroyPipelineLayout(device, m_UIPipelineLayout, nullptr);
     for (auto& mesh : m_Meshes) {
         m_Context->DestroyBuffer(mesh->vertexBuffer);
         m_Context->DestroyBuffer(mesh->indexBuffer);
     }
     m_Meshes.clear();
 
-    for (VkPipeline p : {m_LitPipeline, m_SkyPipeline, m_GridPipeline, m_WirePipeline})
+    for (VkPipeline p : {m_LitPipeline, m_SkyPipeline, m_GridPipeline, m_WirePipeline, m_UIPipeline})
         if (p)
             vkDestroyPipeline(device, p, nullptr);
     vkDestroyPipelineLayout(device, m_PipelineLayout, nullptr);
@@ -82,6 +93,7 @@ Renderer::~Renderer()
 
     for (auto& frame : m_Frames) {
         m_Context->DestroyBuffer(frame.uniforms);
+        m_Context->DestroyBuffer(frame.uiVertices);
         vkDestroyFence(device, frame.inFlight, nullptr);
         vkDestroySemaphore(device, frame.imageAvailable, nullptr);
         vkDestroyCommandPool(device, frame.commandPool, nullptr);
@@ -209,6 +221,8 @@ void Renderer::CreateFrameResources()
 
         frame.uniforms = m_Context->CreateBuffer(m_UniformStride * kMaxViewsPerFrame,
                                                  VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT, true);
+        frame.uiVertices = m_Context->CreateBuffer(sizeof(UIVertex) * kMaxUIVertices,
+                                                   VK_BUFFER_USAGE_VERTEX_BUFFER_BIT, true);
     }
 }
 
@@ -284,7 +298,7 @@ void Renderer::CreatePipelines()
     sky.cullMode = VK_CULL_MODE_NONE;
     sky.depthTest = false;
     sky.depthWrite = false;
-    sky.meshVertexInput = false;
+    sky.vertexLayout = VertexLayout::None;
     m_SkyPipeline = CreateGraphicsPipeline(device, sky);
 
     GraphicsPipelineDesc grid = base;
@@ -310,6 +324,182 @@ void Renderer::CreatePipelines()
     } else {
         Log::Warn("GPU does not support wireframe rendering; selection outlines are disabled");
     }
+
+    VkPushConstantRange uiPush{VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(glm::vec4)};
+    VkPipelineLayoutCreateInfo uiLayoutInfo{VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO};
+    uiLayoutInfo.setLayoutCount = 1;
+    uiLayoutInfo.pSetLayouts = &m_TextureSetLayout;
+    uiLayoutInfo.pushConstantRangeCount = 1;
+    uiLayoutInfo.pPushConstantRanges = &uiPush;
+    ZE_VK_CHECK(vkCreatePipelineLayout(device, &uiLayoutInfo, nullptr, &m_UIPipelineLayout));
+
+    GraphicsPipelineDesc ui = base;
+    ui.vertexShader = dir / "UI.vert.spv";
+    ui.fragmentShader = dir / "UI.frag.spv";
+    ui.layout = m_UIPipelineLayout;
+    ui.vertexLayout = VertexLayout::UI;
+    ui.cullMode = VK_CULL_MODE_NONE;
+    ui.depthTest = false;
+    ui.depthWrite = false;
+    ui.alphaBlend = true;
+    m_UIPipeline = CreateGraphicsPipeline(device, ui);
+}
+
+// ---------------------------------------------------------------- textures
+
+void Renderer::CreateTextureResources()
+{
+    VkDevice device = m_Context->Device();
+
+    VkDescriptorSetLayoutBinding binding{};
+    binding.binding = 0;
+    binding.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+    binding.descriptorCount = 1;
+    binding.stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
+    VkDescriptorSetLayoutCreateInfo layoutInfo{VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO};
+    layoutInfo.bindingCount = 1;
+    layoutInfo.pBindings = &binding;
+    ZE_VK_CHECK(vkCreateDescriptorSetLayout(device, &layoutInfo, nullptr, &m_TextureSetLayout));
+
+    constexpr uint32_t kMaxTextures = 4096;
+    VkDescriptorPoolSize poolSize{VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, kMaxTextures};
+    VkDescriptorPoolCreateInfo poolInfo{VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO};
+    poolInfo.flags = VK_DESCRIPTOR_POOL_CREATE_FREE_DESCRIPTOR_SET_BIT;
+    poolInfo.maxSets = kMaxTextures;
+    poolInfo.poolSizeCount = 1;
+    poolInfo.pPoolSizes = &poolSize;
+    ZE_VK_CHECK(vkCreateDescriptorPool(device, &poolInfo, nullptr, &m_TexturePool));
+
+    VkSamplerCreateInfo samplerInfo{VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO};
+    samplerInfo.magFilter = VK_FILTER_LINEAR;
+    samplerInfo.minFilter = VK_FILTER_LINEAR;
+    samplerInfo.mipmapMode = VK_SAMPLER_MIPMAP_MODE_LINEAR;
+    samplerInfo.addressModeU = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
+    samplerInfo.addressModeV = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
+    samplerInfo.addressModeW = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
+    samplerInfo.maxLod = VK_LOD_CLAMP_NONE;
+    ZE_VK_CHECK(vkCreateSampler(device, &samplerInfo, nullptr, &m_LinearSampler));
+
+    ImageData white;
+    white.width = white.height = 2;
+    white.pixels.assign(16, 255);
+    m_WhiteTexture = CreateTexture("White", white);
+}
+
+Texture* Renderer::CreateTexture(const std::string& name, const ImageData& image)
+{
+    if (image.width == 0 || image.height == 0 || image.pixels.size() < size_t(image.width) * image.height * 4)
+        return nullptr;
+    auto texture = std::make_unique<Texture>();
+    texture->name = name;
+    texture->width = image.width;
+    texture->height = image.height;
+    VkExtent2D extent{image.width, image.height};
+    texture->image = m_Context->CreateImage(extent, VK_FORMAT_R8G8B8A8_UNORM,
+                                            VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT,
+                                            VK_IMAGE_ASPECT_COLOR_BIT);
+
+    VkDeviceSize size = VkDeviceSize(image.width) * image.height * 4;
+    AllocatedBuffer staging = m_Context->CreateBuffer(size, VK_BUFFER_USAGE_TRANSFER_SRC_BIT, true);
+    std::memcpy(staging.mapped, image.pixels.data(), size_t(size));
+    vmaFlushAllocation(m_Context->Allocator(), staging.allocation, 0, VK_WHOLE_SIZE);
+    m_Context->ImmediateSubmit([&](VkCommandBuffer cmd) {
+        TransitionImage(cmd, texture->image.image, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
+        VkBufferImageCopy region{};
+        region.imageSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1};
+        region.imageExtent = {image.width, image.height, 1};
+        vkCmdCopyBufferToImage(cmd, staging.buffer, texture->image.image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1,
+                               &region);
+        TransitionImage(cmd, texture->image.image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+                        VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+    });
+    m_Context->DestroyBuffer(staging);
+
+    VkDescriptorSetAllocateInfo allocInfo{VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO};
+    allocInfo.descriptorPool = m_TexturePool;
+    allocInfo.descriptorSetCount = 1;
+    allocInfo.pSetLayouts = &m_TextureSetLayout;
+    ZE_VK_CHECK(vkAllocateDescriptorSets(m_Context->Device(), &allocInfo, &texture->descriptor));
+    VkDescriptorImageInfo imageInfo{m_LinearSampler, texture->image.view, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL};
+    VkWriteDescriptorSet write{VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET};
+    write.dstSet = texture->descriptor;
+    write.dstBinding = 0;
+    write.descriptorCount = 1;
+    write.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+    write.pImageInfo = &imageInfo;
+    vkUpdateDescriptorSets(m_Context->Device(), 1, &write, 0, nullptr);
+
+    Texture* result = texture.get();
+    m_Textures[name] = std::move(texture);
+    return result;
+}
+
+Texture* Renderer::LoadTexture(const std::string& path)
+{
+    if (path.empty())
+        return nullptr;
+    if (auto it = m_Textures.find(path); it != m_Textures.end())
+        return it->second.get();
+    if (m_FailedTextures.contains(path))
+        return nullptr;
+
+    std::filesystem::path full = Platform::Utf8ToPath(path);
+    if (full.is_relative())
+        full = m_AssetRoot / full;
+    ImageData image;
+    if (!ImageIO::Load(full, image)) {
+        Log::Warn("Cannot load image '{}'", path);
+        m_FailedTextures.insert(path);
+        return nullptr;
+    }
+    return CreateTexture(path, image);
+}
+
+void Renderer::UnloadTexture(const std::string& path)
+{
+    m_FailedTextures.erase(path);
+    auto it = m_Textures.find(path);
+    if (it == m_Textures.end() || it->second.get() == m_WhiteTexture)
+        return;
+    WaitIdle();
+    DestroyTexture(*it->second);
+    m_Textures.erase(it);
+}
+
+void Renderer::DestroyTexture(Texture& texture)
+{
+    if (texture.descriptor)
+        vkFreeDescriptorSets(m_Context->Device(), m_TexturePool, 1, &texture.descriptor);
+    m_Context->DestroyImage(texture.image);
+}
+
+Font* Renderer::DefaultFont()
+{
+    if (m_FontSearched)
+        return m_DefaultFont.get();
+    m_FontSearched = true;
+    const std::filesystem::path candidates[] = {
+        m_AssetRoot / "Fonts" / "Default.ttf",
+        "C:/Windows/Fonts/segoeuib.ttf",
+        "C:/Windows/Fonts/segoeui.ttf",
+        "C:/Windows/Fonts/arial.ttf",
+        "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
+        "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
+    };
+    for (const auto& path : candidates) {
+        std::error_code ec;
+        if (!std::filesystem::exists(path, ec))
+            continue;
+        auto font = std::make_unique<Font>();
+        if (font->Load(*this, path)) {
+            m_DefaultFont = std::move(font);
+            Log::Info("UI font: {}", path.string());
+            break;
+        }
+    }
+    if (!m_DefaultFont)
+        Log::Warn("No UI font found; put a .ttf file at Assets/Fonts/Default.ttf");
+    return m_DefaultFont.get();
 }
 
 void Renderer::RecreateSwapchain()
@@ -368,6 +558,7 @@ bool Renderer::BeginFrame()
     ZE_VK_CHECK(vkBeginCommandBuffer(frame.commandBuffer, &begin));
 
     m_ViewIndex = 0;
+    frame.uiVertexCount = 0;
     m_ScreenReady = false;
     m_FrameActive = true;
     return true;
@@ -475,9 +666,141 @@ void Renderer::DrawScene(RenderTarget& target, const Scene& scene, const CameraD
         }
     }
 
+    if (options.drawUI)
+        DrawUI(cmd, scene, target.extent);
+
     vkCmdEndRendering(cmd);
     TransitionImage(cmd, target.color.image, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
                     VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+}
+
+void Renderer::DrawUI(VkCommandBuffer cmd, const Scene& scene, VkExtent2D extent)
+{
+    struct Item {
+        int order;
+        size_t index;
+        const Entity* entity;
+    };
+    std::vector<Item> items;
+    const auto& entities = scene.Entities();
+    for (size_t i = 0; i < entities.size(); ++i) {
+        const Entity& e = *entities[i];
+        if (!e.active || (!e.uiImage && !e.uiText))
+            continue;
+        int order = e.uiImage ? e.uiImage->rect.order : e.uiText->rect.order;
+        items.push_back({order, i, &e});
+    }
+    if (items.empty())
+        return;
+    std::stable_sort(items.begin(), items.end(), [](const Item& a, const Item& b) { return a.order < b.order; });
+
+    const glm::vec2 screen(float(extent.width), float(extent.height));
+    const float scale = UILayout::Scale(scene.settings, screen);
+
+    struct Batch {
+        Texture* texture;
+        uint32_t first;
+        uint32_t count;
+    };
+    std::vector<UIVertex> vertices;
+    std::vector<Batch> batches;
+    auto addQuad = [&](Texture* tex, glm::vec2 a, glm::vec2 b, glm::vec2 uvA, glm::vec2 uvB, glm::vec4 color) {
+        if (batches.empty() || batches.back().texture != tex)
+            batches.push_back({tex, uint32_t(vertices.size()), 0});
+        UIVertex v0{a, uvA, color}, v1{{b.x, a.y}, {uvB.x, uvA.y}, color}, v2{b, uvB, color},
+            v3{{a.x, b.y}, {uvA.x, uvB.y}, color};
+        vertices.insert(vertices.end(), {v0, v1, v2, v0, v2, v3});
+        batches.back().count += 6;
+    };
+
+    for (const Item& item : items) {
+        const Entity& e = *item.entity;
+        if (e.uiImage) {
+            const UIImageComponent& img = *e.uiImage;
+            ScreenRect r = UILayout::Compute(img.rect, screen, scale);
+            Texture* tex = img.sprite.empty() ? nullptr : LoadTexture(img.sprite);
+            if (!tex)
+                tex = m_WhiteTexture;
+            if (img.preserveAspect && tex != m_WhiteTexture) {
+                glm::vec2 size = r.Size();
+                float texAspect = float(tex->width) / float(tex->height);
+                glm::vec2 fit = size.x / size.y > texAspect ? glm::vec2(size.y * texAspect, size.y)
+                                                            : glm::vec2(size.x, size.x / texAspect);
+                glm::vec2 center = (r.min + r.max) * 0.5f;
+                r.min = center - fit * 0.5f;
+                r.max = center + fit * 0.5f;
+            }
+            addQuad(tex, r.min, r.max, {0.0f, 0.0f}, {1.0f, 1.0f}, img.color);
+        }
+        if (e.uiText && !e.uiText->text.empty()) {
+            const UITextComponent& txt = *e.uiText;
+            Font* font = DefaultFont();
+            if (!font)
+                continue;
+            ScreenRect r = UILayout::Compute(txt.rect, screen, scale);
+            float s = txt.fontSize / Font::kBakeSize * scale;
+
+            std::vector<std::string_view> lines;
+            std::string_view all = txt.text;
+            for (size_t start = 0;;) {
+                size_t end = all.find('\n', start);
+                lines.push_back(all.substr(start, end == std::string_view::npos ? all.npos : end - start));
+                if (end == std::string_view::npos)
+                    break;
+                start = end + 1;
+            }
+            float lineHeight = font->LineHeight() * s;
+            float top = (r.min.y + r.max.y) * 0.5f - lineHeight * float(lines.size()) * 0.5f;
+
+            auto drawText = [&](glm::vec2 offset, glm::vec4 color) {
+                for (size_t li = 0; li < lines.size(); ++li) {
+                    float width = font->MeasureWidth(lines[li]) * s;
+                    float x = txt.align == TextAlign::Left     ? r.min.x
+                              : txt.align == TextAlign::Right  ? r.max.x - width
+                                                               : (r.min.x + r.max.x - width) * 0.5f;
+                    float baseline = top + float(li) * lineHeight + font->Ascent() * s;
+                    for (uint32_t cp : Font::DecodeUtf8(lines[li])) {
+                        const Font::Glyph* g = font->Find(cp);
+                        if (!g)
+                            g = font->Find('?');
+                        if (!g)
+                            continue;
+                        glm::vec2 pen(x, baseline);
+                        if (g->max.x > g->min.x)
+                            addQuad(font->Atlas(), pen + g->min * s + offset, pen + g->max * s + offset, g->uvMin,
+                                    g->uvMax, color);
+                        x += g->advance * s;
+                    }
+                }
+            };
+            if (txt.shadow)
+                drawText(glm::vec2(2.0f * scale), glm::vec4(0.0f, 0.0f, 0.0f, 0.6f * txt.color.a));
+            drawText(glm::vec2(0.0f), txt.color);
+        }
+    }
+
+    FrameResources& frame = m_Frames[m_FrameIndex];
+    if (frame.uiVertexCount + vertices.size() > kMaxUIVertices) {
+        Log::Warn("Too much UI geometry in one frame");
+        return;
+    }
+    uint32_t base = frame.uiVertexCount;
+    std::memcpy(static_cast<UIVertex*>(frame.uiVertices.mapped) + base, vertices.data(),
+                vertices.size() * sizeof(UIVertex));
+    vmaFlushAllocation(m_Context->Allocator(), frame.uiVertices.allocation, base * sizeof(UIVertex),
+                       vertices.size() * sizeof(UIVertex));
+    frame.uiVertexCount += uint32_t(vertices.size());
+
+    vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, m_UIPipeline);
+    glm::vec4 push(screen, 0.0f, 0.0f);
+    vkCmdPushConstants(cmd, m_UIPipelineLayout, VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(push), &push);
+    VkDeviceSize offset = 0;
+    vkCmdBindVertexBuffers(cmd, 0, 1, &frame.uiVertices.buffer, &offset);
+    for (const Batch& batch : batches) {
+        vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, m_UIPipelineLayout, 0, 1,
+                                &batch.texture->descriptor, 0, nullptr);
+        vkCmdDraw(cmd, batch.count, 1, base + batch.first, 0);
+    }
 }
 
 void Renderer::DrawMesh(VkCommandBuffer cmd, const Mesh& mesh, const glm::mat4& model, const glm::vec4& color,

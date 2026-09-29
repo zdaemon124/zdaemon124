@@ -16,6 +16,7 @@ inline void to_json(json& j, const vec2& v) { j = {v.x, v.y}; }
 inline void to_json(json& j, const vec3& v) { j = {v.x, v.y, v.z}; }
 inline void to_json(json& j, const vec4& v) { j = {v.x, v.y, v.z, v.w}; }
 inline void to_json(json& j, const quat& q) { j = {q.x, q.y, q.z, q.w}; }
+inline void from_json(const json& j, vec2& v) { v = {j.at(0).get<float>(), j.at(1).get<float>()}; }
 inline void from_json(const json& j, vec3& v) { v = {j.at(0).get<float>(), j.at(1).get<float>(), j.at(2).get<float>()}; }
 inline void from_json(const json& j, vec4& v)
 {
@@ -44,7 +45,16 @@ NLOHMANN_DEFINE_TYPE_NON_INTRUSIVE_WITH_DEFAULT(RigidbodyComponent, mass, linear
                                                 isKinematic)
 NLOHMANN_DEFINE_TYPE_NON_INTRUSIVE_WITH_DEFAULT(LightComponent, color, intensity)
 NLOHMANN_DEFINE_TYPE_NON_INTRUSIVE_WITH_DEFAULT(CameraComponent, fieldOfView, nearClip, farClip)
-NLOHMANN_DEFINE_TYPE_NON_INTRUSIVE_WITH_DEFAULT(SceneSettings, skyAmbient, groundAmbient, ambientIntensity, gravity)
+NLOHMANN_JSON_SERIALIZE_ENUM(TextAlign, {
+    {TextAlign::Left, "Left"},
+    {TextAlign::Center, "Center"},
+    {TextAlign::Right, "Right"},
+})
+NLOHMANN_DEFINE_TYPE_NON_INTRUSIVE_WITH_DEFAULT(UIRect, anchor, pivot, position, size, order)
+NLOHMANN_DEFINE_TYPE_NON_INTRUSIVE_WITH_DEFAULT(UIImageComponent, rect, sprite, color, preserveAspect)
+NLOHMANN_DEFINE_TYPE_NON_INTRUSIVE_WITH_DEFAULT(UITextComponent, rect, text, fontSize, color, align, shadow)
+NLOHMANN_DEFINE_TYPE_NON_INTRUSIVE_WITH_DEFAULT(SceneSettings, skyAmbient, groundAmbient, ambientIntensity, gravity,
+                                                uiReferenceResolution)
 
 namespace SceneSerializer {
 namespace {
@@ -88,6 +98,8 @@ std::string ToString(const Scene& scene)
         WriteOptional(components, "Rigidbody", e->rigidbody);
         WriteOptional(components, "Light", e->light);
         WriteOptional(components, "Camera", e->camera);
+        WriteOptional(components, "UIImage", e->uiImage);
+        WriteOptional(components, "UIText", e->uiText);
         entities.push_back(std::move(je));
     }
     return root.dump(2);
@@ -113,6 +125,8 @@ bool FromString(Scene& scene, const std::string& text)
             ReadOptional(components, "Rigidbody", e.rigidbody);
             ReadOptional(components, "Light", e.light);
             ReadOptional(components, "Camera", e.camera);
+            ReadOptional(components, "UIImage", e.uiImage);
+            ReadOptional(components, "UIText", e.uiText);
         }
     } catch (const json::exception& ex) {
         Log::Error("Failed to read scene: {}", ex.what());

@@ -1,11 +1,15 @@
 #pragma once
 
+#include "ZEngine/Renderer/Font.h"
 #include "ZEngine/Renderer/Mesh.h"
+#include "ZEngine/Renderer/Texture.h"
 #include "ZEngine/Renderer/VulkanCommon.h"
 #include "ZEngine/Scene/Camera.h"
 #include "ZEngine/Scene/Primitives.h"
 
 #include <array>
+#include <filesystem>
+#include <unordered_set>
 #include <memory>
 #include <string>
 #include <unordered_map>
@@ -39,6 +43,7 @@ struct SceneRenderOptions {
     bool drawGrid = false;
     EntityID selected = 0;       // draws a selection outline and its collider
     bool drawAllColliders = false;
+    bool drawUI = true;          // screen-space UI (off for the editor scene view)
 };
 
 class Renderer {
@@ -59,6 +64,18 @@ public:
     Mesh* FindMesh(const std::string& name) const;
     Mesh* GetPrimitive(PrimitiveType type) const { return m_Primitives[static_cast<size_t>(type)]; }
     std::vector<std::string> MeshNames() const;
+
+    // ---- Textures (owned by the renderer) ----
+    Texture* CreateTexture(const std::string& name, const ImageData& image);
+    // Loads (and caches) an image; relative paths are resolved against the asset root. Null on failure.
+    Texture* LoadTexture(const std::string& path);
+    // Drops a cached texture so the next LoadTexture re-reads the file (waits for the GPU).
+    void UnloadTexture(const std::string& path);
+    Texture* WhiteTexture() const { return m_WhiteTexture; }
+    void SetAssetRoot(const std::filesystem::path& root) { m_AssetRoot = root; }
+    const std::filesystem::path& AssetRoot() const { return m_AssetRoot; }
+    // Default UI font (Assets/Fonts/Default.ttf, else a system font). Null if none was found.
+    Font* DefaultFont();
 
     // ---- Render targets ----
     std::unique_ptr<RenderTarget> CreateRenderTarget(VkExtent2D extent);
@@ -98,6 +115,8 @@ private:
         VkSemaphore imageAvailable = VK_NULL_HANDLE;
         AllocatedBuffer uniforms; // kMaxViewsPerFrame slots
         VkDescriptorSet descriptorSet = VK_NULL_HANDLE;
+        AllocatedBuffer uiVertices;
+        uint32_t uiVertexCount = 0;
     };
 
     void CreateFrameResources();
@@ -107,6 +126,9 @@ private:
     void CreateTargetImages(RenderTarget& target, VkExtent2D extent);
     void DrawMesh(VkCommandBuffer cmd, const Mesh& mesh, const glm::mat4& model, const glm::vec4& color,
                   float checker = 0.0f);
+    void DrawUI(VkCommandBuffer cmd, const Scene& scene, VkExtent2D extent);
+    void CreateTextureResources();
+    void DestroyTexture(Texture& texture);
     void DrawColliderWire(VkCommandBuffer cmd, const Entity& entity, const glm::vec4& color);
 
     Window& m_Window;
@@ -132,6 +154,19 @@ private:
     VkPipeline m_SkyPipeline = VK_NULL_HANDLE;
     VkPipeline m_GridPipeline = VK_NULL_HANDLE;
     VkPipeline m_WirePipeline = VK_NULL_HANDLE; // null if fillModeNonSolid is unsupported
+
+    static constexpr uint32_t kMaxUIVertices = 65536;
+    VkDescriptorSetLayout m_TextureSetLayout = VK_NULL_HANDLE;
+    VkDescriptorPool m_TexturePool = VK_NULL_HANDLE;
+    VkSampler m_LinearSampler = VK_NULL_HANDLE;
+    VkPipelineLayout m_UIPipelineLayout = VK_NULL_HANDLE;
+    VkPipeline m_UIPipeline = VK_NULL_HANDLE;
+    std::unordered_map<std::string, std::unique_ptr<Texture>> m_Textures;
+    std::unordered_set<std::string> m_FailedTextures;
+    Texture* m_WhiteTexture = nullptr;
+    std::filesystem::path m_AssetRoot;
+    std::unique_ptr<Font> m_DefaultFont;
+    bool m_FontSearched = false;
 
     std::vector<std::unique_ptr<Mesh>> m_Meshes;
     std::unordered_map<std::string, Mesh*> m_MeshByName;

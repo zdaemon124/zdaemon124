@@ -63,6 +63,12 @@ private:
         capsule.meshRenderer->color = colors[2];
         capsule.rigidbody = RigidbodyComponent{};
 
+        Entity& hint = m_Scene.CreateEntity("Hint");
+        hint.uiText = UITextComponent{};
+        hint.uiText->text = "Space - throw a ball    R - restart    RMB + WASD - fly";
+        hint.uiText->fontSize = 28.0f;
+        hint.uiText->rect = {{0.5f, 1.0f}, {0.5f, 1.0f}, {0.0f, -20.0f}, {1200.0f, 50.0f}, 0};
+
         m_Physics.Start(m_Scene);
     }
 

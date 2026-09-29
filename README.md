@@ -10,6 +10,9 @@
 - Панели как в Unity: **Hierarchy**, **Inspector**, **Scene**, **Game**, **Project** (проводник по ассетам) и **Console**. Панели можно перетаскивать и стыковать, раскладка сохраняется (Window → Reset Layout сбрасывает её).
 - Создание объектов: меню **GameObject** → Create Empty / 3D Object (Cube, Sphere, Capsule, Cylinder, Plane, Quad) / Light / Camera, кнопка «+» или ПКМ в Hierarchy.
 - Inspector: имя, активность, Transform (позиция, поворот в градусах, масштаб), компоненты **Mesh Renderer**, **Box/Sphere/Capsule Collider**, **Rigidbody**, **Light**, **Camera**; кнопка **Add Component**, удаление компонента крестиком. Без выделения показываются настройки сцены (ambient, гравитация).
+- Панель инструментов окна Scene (справа от Hierarchy): Move/Rotate/Scale, Local/Global, Snap, Grid, Colliders, Stats.
+- **UI на экране игрока**: компоненты **UI Image** (спрайт/цветной прямоугольник) и **UI Text** (латиница и кириллица), якоря и пресеты как в Unity, масштабирование под разрешение (reference resolution 1920×1080), порядок отрисовки. Элементы можно двигать мышью прямо в окне Game, перетаскивать картинки из Project в Game или в поле Sprite. Меню GameObject → UI → Sample HUD создаёт пример интерфейса (сферы здоровья/маны, панель действий, окно задания).
+- Импорт: перетащите файлы из проводника Windows прямо в окно редактора — они скопируются в текущую папку Project. Картинки показываются превью.
 - Scene view: выбор объектов кликом, гизмо **перемещения/поворота/масштаба** (W/E/R, Local/Global, привязка Snap или Ctrl), сетка, подсветка выделения, каркасы коллайдеров, иконки света и камер.
 - **Play / Pause / Step / Stop**: в Play Mode работает физика и открывается окно Game; после Stop сцена возвращается к состоянию до запуска, как в Unity.
 - Сцены хранятся в JSON (`*.zscene`) в папке `Project/Assets`: File → New / Open / Save / Save As, двойной клик по сцене в Project, запрос о несохранённых изменениях.
@@ -20,6 +23,8 @@
 - Рендер на **Vulkan 1.3**: dynamic rendering, synchronization2, VMA, off-screen render targets для окон Scene/Game, процедурное небо, освещение Blinn-Phong, туман, редакторская сетка.
 - **Физика Jolt Physics**: статические, динамические и кинематические тела, коллайдеры Box/Sphere/Capsule со смещением, трение, упругость, масса, затухание, триггеры, raycast.
 - Unity-совместимые соглашения: левосторонняя система координат, +Y вверх, +Z вперёд, углы Эйлера Z-X-Y, цвета в sRGB.
+
+![UI](docs/editor-ui.png)
 
 ![Play mode](docs/editor-play.png)
 
@@ -78,6 +83,7 @@ Sandbox/         демо без редактора
 | 1 | Окно, Vulkan-рендер, камера, примитивы, базовые шейдеры | ✅ |
 | 2 | Редактор: Hierarchy, Inspector, Project, Console, Scene/Game, гизмо, сохранение сцен | ✅ |
 | 3 | Физика Jolt: Rigidbody, коллайдеры, Play/Pause/Stop | ✅ |
+| 3.5 | UI: спрайты и текст на экране, импорт файлов | ✅ |
 | 4 | C#-скрипты (.NET 8): `MonoBehaviour`, `Start/Update/OnCollisionEnter`, горячая перезагрузка | ⏳ |
 | 5 | Иерархия объектов (parent/child), Undo/Redo, префабы | ⏳ |
 | 6 | Материалы и текстуры, тени, загрузка моделей glTF | ⏳ |

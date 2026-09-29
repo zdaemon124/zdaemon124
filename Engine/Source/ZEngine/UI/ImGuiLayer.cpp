@@ -38,7 +38,7 @@ ImGuiLayer::ImGuiLayer(Window& window, Renderer& renderer, const std::string& in
     info.Device = ctx.Device();
     info.QueueFamily = ctx.GraphicsQueueFamily();
     info.Queue = ctx.GraphicsQueue();
-    info.DescriptorPoolSize = 256;
+    info.DescriptorPoolSize = 1024;
     info.MinImageCount = 2;
     info.ImageCount = std::max(2u, renderer.ScreenImageCount());
     info.UseDynamicRendering = true;
@@ -74,15 +74,25 @@ void ImGuiLayer::Render(VkCommandBuffer cmd)
     ImGui_ImplVulkan_RenderDrawData(ImGui::GetDrawData(), cmd);
 }
 
+ImTextureID ImGuiLayer::TextureFor(VkImageView view, VkImageView& cachedView, VkDescriptorSet& cachedSet)
+{
+    if (cachedView != view) {
+        if (cachedSet)
+            ImGui_ImplVulkan_RemoveTexture(cachedSet);
+        cachedSet = ImGui_ImplVulkan_AddTexture(view, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+        cachedView = view;
+    }
+    return static_cast<ImTextureID>(reinterpret_cast<uintptr_t>(cachedSet));
+}
+
 ImTextureID ImGuiLayer::Texture(RenderTarget& target)
 {
-    if (target.uiView != target.color.view) {
-        if (target.uiTexture)
-            ImGui_ImplVulkan_RemoveTexture(target.uiTexture);
-        target.uiTexture = ImGui_ImplVulkan_AddTexture(target.color.view, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
-        target.uiView = target.color.view;
-    }
-    return static_cast<ImTextureID>(reinterpret_cast<uintptr_t>(target.uiTexture));
+    return TextureFor(target.color.view, target.uiView, target.uiTexture);
+}
+
+ImTextureID ImGuiLayer::Texture(ze::Texture& texture)
+{
+    return TextureFor(texture.image.view, texture.uiView, texture.uiTexture);
 }
 
 void ImGuiLayer::ReleaseTexture(RenderTarget& target)

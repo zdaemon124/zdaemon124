@@ -48,6 +48,9 @@ void EditorApp::OnStart()
     std::error_code ec;
     std::filesystem::create_directories(AssetsDir() / "Scenes", ec);
     m_ProjectCurrentDir = AssetsDir();
+    GetRenderer().SetAssetRoot(AssetsDir());
+    CreateSampleSprites();
+    GetWindow().onFileDrop = [this](const std::vector<std::filesystem::path>& files) { ImportFiles(files); };
     Log::Info("Project: {}", m_ProjectDir.string());
 
     std::filesystem::path mainScene = AssetsDir() / "Scenes" / (std::string("Main") + kSceneExtension);
@@ -122,6 +125,7 @@ void EditorApp::OnRender()
         options.drawGrid = m_ShowGrid;
         options.selected = m_Selected;
         options.drawAllColliders = m_ShowColliders;
+        options.drawUI = false; // screen-space UI is shown in the Game view
         float aspect = float(m_SceneTarget->extent.width) / float(m_SceneTarget->extent.height);
         renderer.DrawScene(*m_SceneTarget, m_Scene, m_EditorCamera.Data(aspect), options);
     }
@@ -268,28 +272,13 @@ void EditorApp::DrawMenuBar()
 
 void EditorApp::DrawToolbar()
 {
+    // Top bar: play controls only. Transform tools live in the Scene view's own toolbar.
     ImGuiWindowFlags flags = ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoSavedSettings;
     ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(8.0f, 4.0f));
     if (ImGui::BeginViewportSideBar("##Toolbar", ImGui::GetMainViewport(), ImGuiDir_Up, kToolbarHeight, flags)) {
-        // Left: transform tools.
-        if (UI::IconButton("move", UI::Icon::Move, m_GizmoOperation == ImGuizmo::TRANSLATE, "Move (W)"))
-            m_GizmoOperation = ImGuizmo::TRANSLATE;
-        ImGui::SameLine();
-        if (UI::IconButton("rotate", UI::Icon::Rotate, m_GizmoOperation == ImGuizmo::ROTATE, "Rotate (E)"))
-            m_GizmoOperation = ImGuizmo::ROTATE;
-        ImGui::SameLine();
-        if (UI::IconButton("scale", UI::Icon::Scale, m_GizmoOperation == ImGuizmo::SCALE, "Scale (R)"))
-            m_GizmoOperation = ImGuizmo::SCALE;
-        ImGui::SameLine(0.0f, 12.0f);
-        if (ImGui::Button(m_GizmoMode == ImGuizmo::LOCAL ? "Local" : "Global", ImVec2(64.0f, 26.0f)))
-            m_GizmoMode = m_GizmoMode == ImGuizmo::LOCAL ? ImGuizmo::WORLD : ImGuizmo::LOCAL;
-        UI::Tooltip("Gizmo space");
-        ImGui::SameLine();
         ImGui::AlignTextToFramePadding();
-        ImGui::Checkbox("Snap", &m_Snap);
-        UI::Tooltip("Snap: 0.5 m / 15 deg / 0.1 scale (hold Ctrl for temporary snap)");
+        ImGui::TextDisabled("%s", m_ScenePath.empty() ? "Untitled" : RelativeToAssets(m_ScenePath).c_str());
 
-        // Center: play controls.
         float center = ImGui::GetWindowWidth() * 0.5f;
         ImGui::SameLine(center - 50.0f);
         if (UI::IconButton("play", UI::Icon::Play, IsPlaying(), IsPlaying() ? "Stop (Ctrl+P)" : "Play (Ctrl+P)"))
@@ -302,14 +291,6 @@ void EditorApp::DrawToolbar()
         if (UI::IconButton("step", UI::Icon::Step, false, "Step one physics frame"))
             m_StepRequested = true;
         ImGui::EndDisabled();
-
-        // Right: view toggles.
-        float right = ImGui::GetWindowWidth() - 190.0f;
-        ImGui::SameLine(right);
-        ImGui::AlignTextToFramePadding();
-        ImGui::Checkbox("Grid", &m_ShowGrid);
-        ImGui::SameLine();
-        ImGui::Checkbox("Colliders", &m_ShowColliders);
     }
     ImGui::End();
     ImGui::PopStyleVar();
@@ -672,7 +653,7 @@ EntityID EditorApp::PickEntity(const glm::vec3& origin, const glm::vec3& directi
     EntityID best = 0;
     float bestDistance = std::numeric_limits<float>::max();
     for (const auto& e : m_Scene.Entities()) {
-        if (!e->active)
+        if (!e->active || e->IsUIOnly())
             continue;
         glm::vec3 bmin(-0.35f), bmax(0.35f); // handle for objects without a mesh (lights, cameras)
         glm::mat4 model = e->transform.Matrix();

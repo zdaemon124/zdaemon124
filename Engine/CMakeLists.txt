@@ -4,7 +4,7 @@ file(GLOB_RECURSE ZE_SOURCES CONFIGURE_DEPENDS
 
 add_library(ZEngine STATIC ${ZE_SOURCES})
 target_include_directories(ZEngine PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/Source)
-target_link_libraries(ZEngine PUBLIC volk vma glm_headers glfw imgui json_headers Jolt)
+target_link_libraries(ZEngine PUBLIC volk vma glm_headers glfw imgui json_headers stb_headers Jolt)
 target_compile_definitions(ZEngine PUBLIC
     GLFW_INCLUDE_NONE
     $<$<CONFIG:Debug>:ZE_DEBUG>)

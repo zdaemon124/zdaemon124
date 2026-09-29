@@ -1,7 +1,10 @@
 #pragma once
 
 #include <cstdint>
+#include <filesystem>
+#include <functional>
 #include <string>
+#include <vector>
 
 struct GLFWwindow;
 
@@ -35,6 +38,9 @@ public:
     bool ConsumeResized();
 
     GLFWwindow* Handle() const { return m_Window; }
+
+    // Called when files are dragged from the OS onto the window.
+    std::function<void(const std::vector<std::filesystem::path>&)> onFileDrop;
 
 private:
     GLFWwindow* m_Window = nullptr;

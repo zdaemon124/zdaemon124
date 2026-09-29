@@ -124,7 +124,8 @@ void EditorApp::DrawProject()
         int columns = std::max(1, int(ImGui::GetContentRegionAvail().x / cell));
         std::vector<DirEntry> entries = ListDirectory(m_ProjectCurrentDir);
         if (entries.empty())
-            ImGui::TextDisabled("This folder is empty. Right-click to create a folder or a scene.");
+            ImGui::TextDisabled("This folder is empty. Right-click to create a folder or a scene,\n"
+                                "or drag files here from Windows Explorer.");
 
         if (ImGui::BeginTable("grid", columns)) {
             for (const DirEntry& entry : entries) {
@@ -146,9 +147,28 @@ void EditorApp::DrawProject()
                     else if (isScene)
                         pendingOpenScene = entry.path;
                 }
-                UI::DrawIcon(ImGui::GetWindowDrawList(),
-                             entry.directory ? UI::Icon::Folder : isScene ? UI::Icon::Scene : UI::Icon::File, pos,
-                             {pos.x + m_ProjectIconSize, pos.y + m_ProjectIconSize}, IM_COL32_WHITE);
+                bool isImage = !entry.directory && ImageIO::IsImageFile(entry.path);
+                std::string assetPath = Platform::PathToUtf8(fs::relative(entry.path, assets, ec));
+                if (!entry.directory && ImGui::BeginDragDropSource()) {
+                    ImGui::SetDragDropPayload("ZE_ASSET", assetPath.c_str(), assetPath.size() + 1);
+                    ImGui::TextUnformatted(assetPath.c_str());
+                    ImGui::EndDragDropSource();
+                }
+                Texture* thumbnail = isImage ? GetRenderer().LoadTexture(assetPath) : nullptr;
+                if (thumbnail) {
+                    // Checkerboard behind the image so transparency is visible.
+                    float pad = 4.0f, box = m_ProjectIconSize - pad * 2.0f;
+                    float aspect = float(thumbnail->width) / float(thumbnail->height);
+                    ImVec2 extent = aspect > 1.0f ? ImVec2(box, box / aspect) : ImVec2(box * aspect, box);
+                    ImVec2 a(pos.x + (m_ProjectIconSize - extent.x) * 0.5f, pos.y + (m_ProjectIconSize - extent.y) * 0.5f);
+                    ImDrawList* draw = ImGui::GetWindowDrawList();
+                    draw->AddRectFilled(a, {a.x + extent.x, a.y + extent.y}, IM_COL32(80, 80, 80, 255));
+                    draw->AddImage(ImTextureRef(m_ImGui->Texture(*thumbnail)), a, {a.x + extent.x, a.y + extent.y});
+                } else {
+                    UI::DrawIcon(ImGui::GetWindowDrawList(),
+                                 entry.directory ? UI::Icon::Folder : isScene ? UI::Icon::Scene : UI::Icon::File, pos,
+                                 {pos.x + m_ProjectIconSize, pos.y + m_ProjectIconSize}, IM_COL32_WHITE);
+                }
                 if (hovered)
                     UI::Tooltip(entry.path.filename().string().c_str());
 
@@ -163,6 +183,8 @@ void EditorApp::DrawProject()
                         m_ProjectRenaming = entry.path;
                         m_ProjectRenameBuffer = name;
                     }
+                    if (isImage && ImGui::MenuItem("Reimport"))
+                        GetRenderer().UnloadTexture(assetPath);
                     if (ImGui::MenuItem("Delete"))
                         m_ProjectPendingDelete = entry.path;
                     ImGui::Separator();
@@ -272,6 +294,39 @@ void EditorApp::DrawProject()
     if (!pendingOpenScene.empty() && pendingOpenScene != m_ScenePath)
         RequestSceneChange([this, pendingOpenScene] { OpenScene(pendingOpenScene); });
     ImGui::End();
+}
+
+void EditorApp::ImportFiles(const std::vector<fs::path>& files)
+{
+    std::error_code ec;
+    fs::path target = fs::exists(m_ProjectCurrentDir, ec) ? m_ProjectCurrentDir : AssetsDir();
+    for (const fs::path& file : files) {
+        fs::path destination = target / file.filename();
+        if (fs::is_directory(file, ec))
+            fs::copy(file, destination, fs::copy_options::recursive | fs::copy_options::skip_existing, ec);
+        else
+            fs::copy_file(file, destination, fs::copy_options::overwrite_existing, ec);
+        if (ec) {
+            Log::Error("Import of '{}' failed: {}", Platform::PathToUtf8(file), ec.message());
+            continue;
+        }
+        std::string asset = Platform::PathToUtf8(fs::relative(destination, AssetsDir(), ec));
+        GetRenderer().UnloadTexture(asset); // pick up the new file if it replaced an old one
+        Log::Info("Imported {}", asset);
+    }
+}
+
+std::vector<std::string> EditorApp::ListImageAssets() const
+{
+    std::vector<std::string> images;
+    std::error_code ec;
+    for (auto it = fs::recursive_directory_iterator(AssetsDir(), ec); it != fs::recursive_directory_iterator();
+         it.increment(ec)) {
+        if (!ec && it->is_regular_file(ec) && ImageIO::IsImageFile(it->path()))
+            images.push_back(Platform::PathToUtf8(fs::relative(it->path(), AssetsDir(), ec)));
+    }
+    std::sort(images.begin(), images.end());
+    return images;
 }
 
 } // namespace ze
