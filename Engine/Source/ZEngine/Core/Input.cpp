@@ -59,8 +59,12 @@ float ScrollDelta() { return g.scroll; }
 
 void SetCursorLocked(bool locked)
 {
-    if (g.window)
-        glfwSetInputMode(g.window, GLFW_CURSOR, locked ? GLFW_CURSOR_DISABLED : GLFW_CURSOR_NORMAL);
+    if (!g.window)
+        return;
+    glfwSetInputMode(g.window, GLFW_CURSOR, locked ? GLFW_CURSOR_DISABLED : GLFW_CURSOR_NORMAL);
+    // Raw (unaccelerated) mouse motion for smooth, precise camera look.
+    if (glfwRawMouseMotionSupported())
+        glfwSetInputMode(g.window, GLFW_RAW_MOUSE_MOTION, locked ? GLFW_TRUE : GLFW_FALSE);
 }
 
 namespace Detail {

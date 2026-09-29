@@ -32,6 +32,8 @@ public:
 
     float Time() const { return m_Time; }
     float DeltaTime() const { return m_DeltaTime; }
+    // Delta time averaged over recent frames: steadier motion for cameras and animation under vsync jitter.
+    float SmoothDeltaTime() const { return m_SmoothDeltaTime; }
     float Fps() const { return m_Fps; }
     uint64_t FrameCount() const { return m_FrameCount; }
     const std::vector<std::string>& Args() const { return m_Args; }
@@ -53,6 +55,7 @@ private:
 
     float m_Time = 0.0f;
     float m_DeltaTime = 0.0f;
+    float m_SmoothDeltaTime = 1.0f / 60.0f;
     float m_Fps = 0.0f;
     uint64_t m_FrameCount = 0;
     uint64_t m_ExitAfterFrames = 0;

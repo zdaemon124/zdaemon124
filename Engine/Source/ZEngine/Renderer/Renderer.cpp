@@ -606,7 +606,8 @@ void Renderer::DrawScene(RenderTarget& target, const Scene& scene, const CameraD
     color.imageLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
     color.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
     color.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
-    std::memcpy(color.clearValue.color.float32, &m_Settings.clearColor, sizeof(float) * 4);
+    const glm::vec4& clear = options.drawWorld ? m_Settings.clearColor : options.background;
+    std::memcpy(color.clearValue.color.float32, &clear, sizeof(float) * 4);
 
     VkRenderingAttachmentInfo depth{VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO};
     depth.imageView = target.depth.view;
@@ -630,29 +631,53 @@ void Renderer::DrawScene(RenderTarget& target, const Scene& scene, const CameraD
     vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, m_PipelineLayout, 0, 1, &frame.descriptorSet, 1,
                             &uniformOffset);
 
-    // Sky: one full-screen triangle behind everything.
-    vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, m_SkyPipeline);
-    vkCmdDraw(cmd, 3, 1, 0, 0);
+    if (options.drawWorld) {
+        // Sky: one full-screen triangle behind everything.
+        vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, m_SkyPipeline);
+        vkCmdDraw(cmd, 3, 1, 0, 0);
 
-    // Opaque geometry.
-    vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, m_LitPipeline);
-    for (const auto& entity : scene.Entities()) {
-        if (!entity->active || !entity->meshRenderer)
-            continue;
-        const MeshRendererComponent& mr = *entity->meshRenderer;
-        if (const Mesh* mesh = FindMesh(mr.mesh))
-            DrawMesh(cmd, *mesh, entity->transform.Matrix(), mr.color, mr.checkerScale);
+        // Frustum planes (Gribb/Hartmann) for culling by bounding sphere.
+        glm::mat4 m = glm::transpose(u.viewProjection);
+        glm::vec4 planes[5] = {m[3] + m[0], m[3] - m[0], m[3] + m[1], m[3] - m[1], m[2]};
+        for (glm::vec4& p : planes)
+            p /= glm::length(glm::vec3(p));
+
+        // Opaque geometry.
+        vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, m_LitPipeline);
+        for (const auto& entity : scene.Entities()) {
+            if (!entity->active || !entity->meshRenderer)
+                continue;
+            const MeshRendererComponent& mr = *entity->meshRenderer;
+            const Mesh* mesh = FindMesh(mr.mesh);
+            if (!mesh)
+                continue;
+            glm::mat4 model = entity->transform.Matrix();
+            if (options.frustumCulling) {
+                glm::vec3 center = model * glm::vec4((mesh->boundsMin + mesh->boundsMax) * 0.5f, 1.0f);
+                glm::vec3 s = glm::abs(entity->transform.scale);
+                float radius = glm::length((mesh->boundsMax - mesh->boundsMin) * 0.5f) * std::max({s.x, s.y, s.z});
+                bool visible = true;
+                for (const glm::vec4& p : planes)
+                    if (glm::dot(glm::vec3(p), center) + p.w < -radius) {
+                        visible = false;
+                        break;
+                    }
+                if (!visible)
+                    continue;
+            }
+            DrawMesh(cmd, *mesh, model, mr.color, mr.checkerScale);
+        }
     }
 
     // Editor overlays.
-    if (options.drawGrid) {
+    if (options.drawGrid && options.drawWorld) {
         vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, m_GridPipeline);
         glm::vec3 center = glm::floor(camera.position / 10.0f) * 10.0f;
         glm::mat4 model = glm::translate(glm::mat4(1.0f), {center.x, 0.0f, center.z}) *
                           glm::scale(glm::mat4(1.0f), glm::vec3(60.0f));
         DrawMesh(cmd, *GetPrimitive(PrimitiveType::Plane), model, glm::vec4(1.0f));
     }
-    if (m_WirePipeline) {
+    if (m_WirePipeline && options.drawWorld) {
         vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, m_WirePipeline);
         for (const auto& entity : scene.Entities()) {
             bool selected = entity->id == options.selected && options.selected != 0;
@@ -676,34 +701,20 @@ void Renderer::DrawScene(RenderTarget& target, const Scene& scene, const CameraD
 
 void Renderer::DrawUI(VkCommandBuffer cmd, const Scene& scene, VkExtent2D extent)
 {
-    struct Item {
-        int order;
-        size_t index;
-        const Entity* entity;
-    };
-    std::vector<Item> items;
-    const auto& entities = scene.Entities();
-    for (size_t i = 0; i < entities.size(); ++i) {
-        const Entity& e = *entities[i];
-        if (!e.active || (!e.uiImage && !e.uiText))
-            continue;
-        int order = e.uiImage ? e.uiImage->rect.order : e.uiText->rect.order;
-        items.push_back({order, i, &e});
-    }
-    if (items.empty())
+    UILayoutResult layout;
+    layout.Build(scene, glm::vec2(float(extent.width), float(extent.height)));
+    if (layout.DrawOrder().empty())
         return;
-    std::stable_sort(items.begin(), items.end(), [](const Item& a, const Item& b) { return a.order < b.order; });
-
-    const glm::vec2 screen(float(extent.width), float(extent.height));
-    const float scale = UILayout::Scale(scene.settings, screen);
+    const float scale = layout.Scale();
 
     struct Batch {
         Texture* texture;
         uint32_t first;
         uint32_t count;
     };
-    std::vector<UIVertex> vertices;
+    std::vector<UIVertex>& vertices = m_UIVertexScratch;
     std::vector<Batch> batches;
+    vertices.clear();
     auto addQuad = [&](Texture* tex, glm::vec2 a, glm::vec2 b, glm::vec2 uvA, glm::vec2 uvB, glm::vec4 color) {
         if (batches.empty() || batches.back().texture != tex)
             batches.push_back({tex, uint32_t(vertices.size()), 0});
@@ -713,31 +724,31 @@ void Renderer::DrawUI(VkCommandBuffer cmd, const Scene& scene, VkExtent2D extent
         batches.back().count += 6;
     };
 
-    for (const Item& item : items) {
-        const Entity& e = *item.entity;
+    for (const Entity* entity : layout.DrawOrder()) {
+        const Entity& e = *entity;
+        ScreenRect r = layout.ToScreen(*layout.Find(e.id));
         if (e.uiImage) {
             const UIImageComponent& img = *e.uiImage;
-            ScreenRect r = UILayout::Compute(img.rect, screen, scale);
             Texture* tex = img.sprite.empty() ? nullptr : LoadTexture(img.sprite);
             if (!tex)
                 tex = m_WhiteTexture;
-            if (img.preserveAspect && tex != m_WhiteTexture) {
+            ScreenRect q = r;
+            if (img.preserveAspect && tex != m_WhiteTexture && r.Size().y > 0.0f) {
                 glm::vec2 size = r.Size();
                 float texAspect = float(tex->width) / float(tex->height);
                 glm::vec2 fit = size.x / size.y > texAspect ? glm::vec2(size.y * texAspect, size.y)
                                                             : glm::vec2(size.x, size.x / texAspect);
-                glm::vec2 center = (r.min + r.max) * 0.5f;
-                r.min = center - fit * 0.5f;
-                r.max = center + fit * 0.5f;
+                q.min = r.Center() - fit * 0.5f;
+                q.max = r.Center() + fit * 0.5f;
             }
-            addQuad(tex, r.min, r.max, {0.0f, 0.0f}, {1.0f, 1.0f}, img.color);
+            if (img.color.a > 0.0f)
+                addQuad(tex, q.min, q.max, {0.0f, 0.0f}, {1.0f, 1.0f}, img.color);
         }
         if (e.uiText && !e.uiText->text.empty()) {
             const UITextComponent& txt = *e.uiText;
             Font* font = DefaultFont();
             if (!font)
                 continue;
-            ScreenRect r = UILayout::Compute(txt.rect, screen, scale);
             float s = txt.fontSize / Font::kBakeSize * scale;
 
             std::vector<std::string_view> lines;
@@ -750,14 +761,14 @@ void Renderer::DrawUI(VkCommandBuffer cmd, const Scene& scene, VkExtent2D extent
                 start = end + 1;
             }
             float lineHeight = font->LineHeight() * s;
-            float top = (r.min.y + r.max.y) * 0.5f - lineHeight * float(lines.size()) * 0.5f;
+            float top = r.Center().y - lineHeight * float(lines.size()) * 0.5f;
 
             auto drawText = [&](glm::vec2 offset, glm::vec4 color) {
                 for (size_t li = 0; li < lines.size(); ++li) {
                     float width = font->MeasureWidth(lines[li]) * s;
-                    float x = txt.align == TextAlign::Left     ? r.min.x
-                              : txt.align == TextAlign::Right  ? r.max.x - width
-                                                               : (r.min.x + r.max.x - width) * 0.5f;
+                    float x = txt.align == TextAlign::Left    ? r.min.x
+                              : txt.align == TextAlign::Right ? r.max.x - width
+                                                              : r.Center().x - width * 0.5f;
                     float baseline = top + float(li) * lineHeight + font->Ascent() * s;
                     for (uint32_t cp : Font::DecodeUtf8(lines[li])) {
                         const Font::Glyph* g = font->Find(cp);
@@ -774,10 +785,12 @@ void Renderer::DrawUI(VkCommandBuffer cmd, const Scene& scene, VkExtent2D extent
                 }
             };
             if (txt.shadow)
-                drawText(glm::vec2(2.0f * scale), glm::vec4(0.0f, 0.0f, 0.0f, 0.6f * txt.color.a));
+                drawText(glm::vec2(std::max(1.0f, 2.0f * scale)), glm::vec4(0.0f, 0.0f, 0.0f, 0.6f * txt.color.a));
             drawText(glm::vec2(0.0f), txt.color);
         }
     }
+    if (vertices.empty())
+        return;
 
     FrameResources& frame = m_Frames[m_FrameIndex];
     if (frame.uiVertexCount + vertices.size() > kMaxUIVertices) {
@@ -792,7 +805,7 @@ void Renderer::DrawUI(VkCommandBuffer cmd, const Scene& scene, VkExtent2D extent
     frame.uiVertexCount += uint32_t(vertices.size());
 
     vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, m_UIPipeline);
-    glm::vec4 push(screen, 0.0f, 0.0f);
+    glm::vec4 push(float(extent.width), float(extent.height), 0.0f, 0.0f);
     vkCmdPushConstants(cmd, m_UIPipelineLayout, VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(push), &push);
     VkDeviceSize offset = 0;
     vkCmdBindVertexBuffers(cmd, 0, 1, &frame.uiVertices.buffer, &offset);

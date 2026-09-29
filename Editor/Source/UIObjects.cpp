@@ -118,21 +118,41 @@ void EditorApp::CreateSampleSprites()
     Log::Info("Created sample sprites in Assets/Sprites");
 }
 
-Entity& EditorApp::CreateUIImage(const std::string& sprite, glm::vec2 position)
+EntityID EditorApp::SelectedUIParent()
 {
-    std::string name = sprite.empty() ? "Image" : Platform::Utf8ToPath(sprite).stem().string();
+    Entity* e = Selected();
+    return e && e->rectTransform ? e->id : 0;
+}
+
+Entity& EditorApp::CreateUIGroup(const std::string& name, EntityID parent)
+{
     Entity& e = CreateObject(name);
-    e.uiImage = UIImageComponent{};
-    e.uiImage->sprite = sprite;
-    e.uiImage->rect.position = position;
-    if (Texture* tex = sprite.empty() ? nullptr : GetRenderer().LoadTexture(sprite))
-        e.uiImage->rect.size = {float(tex->width), float(tex->height)};
+    e.rectTransform = RectTransform{};
+    e.rectTransform->parent = parent;
+    e.rectTransform->size = {300.0f, 200.0f};
     return e;
 }
 
-Entity& EditorApp::CreateUIText(const std::string& text)
+Entity& EditorApp::CreateUIImage(const std::string& sprite, glm::vec2 position, EntityID parent)
+{
+    std::string name = sprite.empty() ? "Image" : Platform::Utf8ToPath(sprite).stem().string();
+    Entity& e = CreateObject(name);
+    e.rectTransform = RectTransform{};
+    e.rectTransform->parent = parent;
+    e.rectTransform->position = position;
+    e.uiImage = UIImageComponent{};
+    e.uiImage->sprite = sprite;
+    if (Texture* tex = sprite.empty() ? nullptr : GetRenderer().LoadTexture(sprite))
+        e.rectTransform->size = {float(tex->width), float(tex->height)};
+    return e;
+}
+
+Entity& EditorApp::CreateUIText(const std::string& text, EntityID parent)
 {
     Entity& e = CreateObject("Text");
+    e.rectTransform = RectTransform{};
+    e.rectTransform->parent = parent;
+    e.rectTransform->size = {400.0f, 60.0f};
     e.uiText = UITextComponent{};
     e.uiText->text = text;
     return e;
@@ -140,47 +160,78 @@ Entity& EditorApp::CreateUIText(const std::string& text)
 
 void EditorApp::CreateSampleHUD()
 {
+    // Built with nested, anchored elements so it stays correct at any resolution / aspect ratio.
     const glm::vec4 goldText{1.0f, 0.85f, 0.45f, 1.0f};
-
-    auto image = [&](const char* name, const char* sprite, glm::vec2 anchor, glm::vec2 pos, glm::vec2 size, int order) {
+    auto rect = [](glm::vec2 anchor, glm::vec2 pos, glm::vec2 size, int order = 0) {
+        return RectTransform::Anchored(anchor, pos, size, order);
+    };
+    auto image = [&](const char* name, const char* sprite, RectTransform r, EntityID parent) -> Entity& {
         Entity& e = CreateObject(name);
+        r.parent = parent;
+        e.rectTransform = r;
         e.uiImage = UIImageComponent{};
         e.uiImage->sprite = sprite;
-        e.uiImage->rect = {anchor, anchor, pos, size, order};
-        return &e;
+        return e;
     };
-    auto text = [&](const char* name, const std::string& str, glm::vec2 anchor, glm::vec2 pos, glm::vec2 size,
-                    float fontSize, glm::vec4 color, int order) {
+    auto text = [&](const char* name, const std::string& str, RectTransform r, EntityID parent, float fontSize,
+                    glm::vec4 color) -> Entity& {
         Entity& e = CreateObject(name);
+        r.parent = parent;
+        e.rectTransform = r;
         e.uiText = UITextComponent{};
         e.uiText->text = str;
         e.uiText->fontSize = fontSize;
         e.uiText->color = color;
-        e.uiText->rect = {anchor, anchor, pos, size, order};
-        return &e;
+        return e;
     };
 
-    image("Health Orb", "Sprites/Orb_Health.png", {0, 0}, {40, 30}, {230, 230}, 10);
-    text("Health Text", "250 / 250", {0, 0}, {40, 130}, {230, 40}, 26, {1, 1, 1, 1}, 11);
-    image("Mana Orb", "Sprites/Orb_Mana.png", {1, 0}, {-40, 30}, {230, 230}, 10);
-    text("Mana Text", "180 / 180", {1, 0}, {-40, 130}, {230, 40}, 26, {1, 1, 1, 1}, 11);
+    // Root: stretches over the whole screen.
+    Entity& hud = CreateObject("HUD");
+    hud.rectTransform = RectTransform{};
+    hud.rectTransform->anchorMin = {0, 0};
+    hud.rectTransform->anchorMax = {1, 1};
+    hud.rectTransform->size = {0, 0};
+    EntityID root = hud.id;
 
-    Entity* bar = image("Action Bar", "Sprites/Panel_Dark.png", {0.5f, 0}, {0, 16}, {760, 110}, 5);
-    bar->uiImage->rect.pivot = {0.5f, 0.0f};
+    // Orbs in the bottom corners with centered values.
+    Entity& health = image("Health Orb", "Sprites/Orb_Health.png", rect({0, 0}, {40, 30}, {230, 230}, 10), root);
+    Entity& healthText = text("Value", "250 / 250", RectTransform{}, health.id, 26, {1, 1, 1, 1});
+    healthText.rectTransform->anchorMin = {0, 0.4f};
+    healthText.rectTransform->anchorMax = {1, 0.6f};
+    healthText.rectTransform->size = {0, 0};
+    Entity& mana = image("Mana Orb", "Sprites/Orb_Mana.png", rect({1, 0}, {-40, 30}, {230, 230}, 10), root);
+    Entity& manaText = text("Value", "180 / 180", RectTransform{}, mana.id, 26, {1, 1, 1, 1});
+    manaText.rectTransform->anchorMin = {0, 0.4f};
+    manaText.rectTransform->anchorMax = {1, 0.6f};
+    manaText.rectTransform->size = {0, 0};
+
+    // Action bar: slots are anchored to fractions of the bar, so they spread with it.
+    Entity& bar = image("Action Bar", "Sprites/Panel_Dark.png", rect({0.5f, 0}, {0, 16}, {760, 110}, 5), root);
     for (int i = 0; i < 8; ++i) {
-        glm::vec2 pos{(float(i) - 3.5f) * 88.0f, 30.0f};
-        Entity* slot = image(("Slot " + std::to_string(i + 1)).c_str(), "Sprites/Slot.png", {0.5f, 0}, pos, {80, 80}, 6);
-        slot->uiImage->rect.pivot = {0.5f, 0.0f};
-        Entity* key = text(("Hotkey " + std::to_string(i + 1)).c_str(), std::to_string(i + 1), {0.5f, 0},
-                           pos + glm::vec2(24.0f, 52.0f), {30, 30}, 20, goldText, 7);
-        key->uiText->rect.pivot = {0.5f, 0.0f};
+        float x = (float(i) + 0.5f) / 8.0f;
+        RectTransform slotRect = RectTransform::Anchored({x, 0.5f}, {0, 0}, {80, 80});
+        slotRect.pivot = {0.5f, 0.5f};
+        Entity& slot = image(("Slot " + std::to_string(i + 1)).c_str(), "Sprites/Slot.png", slotRect, bar.id);
+        text("Hotkey", std::to_string(i + 1), rect({1, 1}, {-6, -4}, {24, 24}), slot.id, 20, goldText);
     }
 
-    Entity* frame = image("Quest Frame", "Sprites/Frame_Gold.png", {1, 1}, {-30, -30}, {380, 160}, 5);
-    (void)frame;
-    text("Quest Title", "The Fallen Keep", {1, 1}, {-30, -45}, {380, 44}, 30, goldText, 6);
-    text("Quest Text", "Slay the skeleton lord\n0 / 1", {1, 1}, {-30, -95}, {380, 80}, 22, {0.9f, 0.9f, 0.9f, 1}, 6);
-    Log::Info("Created sample HUD (see the Game view)");
+    // Quest tracker in the top-right corner; title/body stretch across the frame width.
+    Entity& frame = image("Quest Frame", "Sprites/Frame_Gold.png", rect({1, 1}, {-30, -30}, {380, 160}, 5), root);
+    Entity& title = text("Title", "The Fallen Keep", RectTransform{}, frame.id, 30, goldText);
+    title.rectTransform->anchorMin = {0, 1};
+    title.rectTransform->anchorMax = {1, 1};
+    title.rectTransform->pivot = {0.5f, 1};
+    title.rectTransform->position = {0, -12};
+    title.rectTransform->size = {-20, 44};
+    Entity& body = text("Objective", "Slay the skeleton lord\n0 / 1", RectTransform{}, frame.id, 22, {0.9f, 0.9f, 0.9f, 1});
+    body.rectTransform->anchorMin = {0, 0};
+    body.rectTransform->anchorMax = {1, 1};
+    body.rectTransform->position = {0, -20};
+    body.rectTransform->size = {-30, -70};
+
+    Select(root);
+    m_FocusUIPanel = true;
+    Log::Info("Created sample HUD (open the UI panel to edit it)");
 }
 
 } // namespace ze

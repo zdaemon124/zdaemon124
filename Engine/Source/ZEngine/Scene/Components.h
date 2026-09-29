@@ -47,20 +47,34 @@ struct CameraComponent {
     float farClip = 1000.0f;
 };
 
-// ---- Screen-space UI (drawn over the game camera) ----
+// ---- Screen-space UI (drawn over the game camera, edited in the UI panel) ----
 
-// Unity-like rect: anchor and pivot in 0..1 from the bottom-left of the screen,
-// position/size in pixels of the reference resolution (SceneSettings::uiReferenceResolution).
-struct UIRect {
-    glm::vec2 anchor{0.5f, 0.5f};
+// Unity-like RectTransform. Coordinates are in reference pixels (SceneSettings::uiReferenceResolution),
+// anchors/pivot in 0..1 of the parent rect measured from its bottom-left corner.
+//  - anchorMin == anchorMax: `size` is the element size and `position` the pivot offset from the anchor.
+//  - anchorMin != anchorMax (stretch): the element spans the anchors and `size` is added to that span
+//    (so size = 0 fills the anchor area exactly, negative values inset it).
+struct RectTransform {
+    glm::vec2 anchorMin{0.5f, 0.5f};
+    glm::vec2 anchorMax{0.5f, 0.5f};
     glm::vec2 pivot{0.5f, 0.5f};
     glm::vec2 position{0.0f};
     glm::vec2 size{100.0f, 100.0f};
-    int order = 0; // higher is drawn on top
+    int order = 0;           // draw order among siblings (higher = on top)
+    uint32_t parent = 0;     // parent UI entity id, 0 = the screen
+
+    static RectTransform Anchored(glm::vec2 anchor, glm::vec2 position, glm::vec2 size, int order = 0)
+    {
+        RectTransform r;
+        r.anchorMin = r.anchorMax = r.pivot = anchor;
+        r.position = position;
+        r.size = size;
+        r.order = order;
+        return r;
+    }
 };
 
 struct UIImageComponent {
-    UIRect rect;
     std::string sprite;  // image path relative to Assets ("" = plain color)
     glm::vec4 color{1.0f};
     bool preserveAspect = false;
@@ -69,13 +83,14 @@ struct UIImageComponent {
 enum class TextAlign { Left, Center, Right };
 
 struct UITextComponent {
-    UIRect rect{{0.5f, 0.5f}, {0.5f, 0.5f}, {0.0f, 0.0f}, {400.0f, 60.0f}, 1};
     std::string text = "New Text";
     float fontSize = 36.0f;
     glm::vec4 color{1.0f};
     TextAlign align = TextAlign::Center;
     bool shadow = true;
 };
+
+enum class UIScaleMode { ScaleWithScreenSize, ConstantPixelSize };
 
 const char* ColliderShapeName(ColliderShape shape);
 

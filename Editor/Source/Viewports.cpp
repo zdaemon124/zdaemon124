@@ -213,7 +213,7 @@ void EditorApp::DrawGameView()
                     float scale = UILayout::Scale(m_Scene.settings, screen);
                     ImVec2 mouse = ImGui::GetMousePos();
                     glm::vec2 local(mouse.x - origin.x, size.y - (mouse.y - origin.y));
-                    CreateUIImage(asset, (local - screen * 0.5f) / scale);
+                    CreateUIImage(asset, (local - screen * 0.5f) / scale, 0);
                 }
             }
             ImGui::EndDragDropTarget();
@@ -230,59 +230,40 @@ void EditorApp::DrawGameView()
 
 void EditorApp::DrawGameViewUIOverlay(ImVec2 origin, ImVec2 size, bool hovered)
 {
-    glm::vec2 screen(size.x, size.y);
-    float scale = UILayout::Scale(m_Scene.settings, screen);
-    auto rectOf = [&](Entity& e) -> UIRect* {
-        if (e.uiImage) return &e.uiImage->rect;
-        if (e.uiText) return &e.uiText->rect;
-        return nullptr;
-    };
-
+    UILayoutResult layout;
+    layout.Build(m_Scene, glm::vec2(size.x, size.y));
     ImVec2 mouse = ImGui::GetMousePos();
     glm::vec2 local(mouse.x - origin.x, mouse.y - origin.y);
 
     // Click selects the top-most UI element under the cursor.
     if (hovered && ImGui::IsMouseClicked(ImGuiMouseButton_Left)) {
-        Entity* hit = nullptr;
-        int bestOrder = std::numeric_limits<int>::min();
-        for (auto& e : m_Scene.Entities()) {
-            UIRect* rect = e->active ? rectOf(*e) : nullptr;
-            if (rect && rect->order >= bestOrder && UILayout::Compute(*rect, screen, scale).Contains(local)) {
-                hit = e.get();
-                bestOrder = rect->order;
+        const auto& order = layout.DrawOrder();
+        for (auto it = order.rbegin(); it != order.rend(); ++it) {
+            if (layout.ToScreen(*layout.Find((*it)->id)).Contains(local)) {
+                Select((*it)->id);
+                m_DraggingUI = true;
+                break;
             }
-        }
-        if (hit) {
-            Select(hit->id);
-            m_DraggingUI = true;
         }
     }
     if (!ImGui::IsMouseDown(ImGuiMouseButton_Left))
         m_DraggingUI = false;
 
     Entity* selected = Selected();
-    UIRect* rect = selected ? rectOf(*selected) : nullptr;
+    const CanvasRect* rect = selected && selected->rectTransform ? layout.Find(selected->id) : nullptr;
     if (!rect)
         return;
 
-    // Drag to move (screen pixels -> reference pixels, y up).
     if (m_DraggingUI) {
         ImVec2 delta = ImGui::GetIO().MouseDelta;
         if (delta.x != 0.0f || delta.y != 0.0f) {
-            rect->position += glm::vec2(delta.x, -delta.y) / scale;
+            selected->rectTransform->position += glm::vec2(delta.x, -delta.y) / layout.Scale();
             MarkDirty();
         }
     }
-
-    ScreenRect r = UILayout::Compute(*rect, screen, scale);
-    ImDrawList* draw = ImGui::GetWindowDrawList();
-    ImVec2 a(origin.x + r.min.x, origin.y + r.min.y), b(origin.x + r.max.x, origin.y + r.max.y);
-    draw->AddRect(a, b, IM_COL32(255, 140, 25, 255), 0.0f, 1.5f);
-    ImVec2 pivot(a.x + (b.x - a.x) * rect->pivot.x, b.y - (b.y - a.y) * rect->pivot.y);
-    draw->AddCircle(pivot, 5.0f, IM_COL32(80, 160, 255, 255), 12, 2.0f);
-    ImVec2 anchor(origin.x + size.x * rect->anchor.x, origin.y + size.y * (1.0f - rect->anchor.y));
-    draw->AddTriangleFilled({anchor.x, anchor.y - 7.0f}, {anchor.x - 6.0f, anchor.y + 4.0f},
-                            {anchor.x + 6.0f, anchor.y + 4.0f}, IM_COL32(230, 230, 230, 200));
+    ScreenRect r = layout.ToScreen(*rect);
+    ImGui::GetWindowDrawList()->AddRect({origin.x + r.min.x, origin.y + r.min.y}, {origin.x + r.max.x, origin.y + r.max.y},
+                                        IM_COL32(255, 140, 25, 255), 0.0f, 1.5f);
 }
 
 } // namespace ze

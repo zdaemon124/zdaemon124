@@ -12,7 +12,7 @@ namespace {
 UI::Icon EntityIcon(const Entity& e)
 {
     if (e.camera) return UI::Icon::Camera;
-    if (e.uiImage || e.uiText) return UI::Icon::Image;
+    if (e.IsUI()) return UI::Icon::Image;
     if (e.light) return UI::Icon::Light;
     if (e.meshRenderer) return UI::Icon::Cube;
     return UI::Icon::Empty;
@@ -51,9 +51,11 @@ void EditorApp::DrawCreateMenuItems()
     }
     if (ImGui::BeginMenu("UI")) {
         if (ImGui::MenuItem("Image"))
-            CreateUIImage("", {0.0f, 0.0f});
+            CreateUIImage("", {0.0f, 0.0f}, SelectedUIParent());
         if (ImGui::MenuItem("Text"))
-            CreateUIText("New Text");
+            CreateUIText("New Text", SelectedUIParent());
+        if (ImGui::MenuItem("Group (empty container)"))
+            CreateUIGroup("Group", SelectedUIParent());
         ImGui::Separator();
         if (ImGui::MenuItem("Sample HUD (orbs + action bar)"))
             CreateSampleHUD();
@@ -69,7 +71,9 @@ void EditorApp::DrawCreateMenuItems()
 
 void EditorApp::DrawHierarchy()
 {
-    if (!ImGui::Begin("Hierarchy")) {
+    bool open = ImGui::Begin("Hierarchy");
+    m_HierarchyFocused = ImGui::IsWindowFocused(ImGuiFocusedFlags_RootAndChildWindows);
+    if (!open) {
         ImGui::End();
         return;
     }
@@ -99,6 +103,8 @@ void EditorApp::DrawHierarchy()
         auto& entities = m_Scene.Entities();
         for (size_t i = 0; i < entities.size(); ++i) {
             Entity& e = *entities[i];
+            if (e.IsUIOnly())
+                continue; // screen UI lives in the UI panel, not in the scene list
             if (!filter.empty() && !ContainsNoCase(e.name, filter))
                 continue;
             ImGui::PushID(int(e.id));
@@ -174,6 +180,27 @@ void EditorApp::DrawHierarchy()
                 ImGui::EndPopup();
             }
             ImGui::PopID();
+        }
+
+        size_t uiCount = std::count_if(entities.begin(), entities.end(), [](const auto& e) { return e->IsUIOnly(); });
+        if (uiCount > 0) {
+            ImGui::Spacing();
+            ImVec2 start = ImGui::GetCursorScreenPos();
+            float iconSize = ImGui::GetTextLineHeight();
+            Entity* sel = Selected();
+            ImGuiTreeNodeFlags flags = ImGuiTreeNodeFlags_Leaf | ImGuiTreeNodeFlags_NoTreePushOnOpen |
+                                       ImGuiTreeNodeFlags_SpanAvailWidth | ImGuiTreeNodeFlags_FramePadding;
+            if (sel && sel->IsUIOnly())
+                flags |= ImGuiTreeNodeFlags_Selected;
+            ImGui::TreeNodeEx("##screen-ui", flags, "      Screen UI  (%zu)", uiCount);
+            UI::DrawIcon(ImGui::GetWindowDrawList(), UI::Icon::Image,
+                         {start.x + ImGui::GetTreeNodeToLabelSpacing() - 2.0f, start.y + ImGui::GetStyle().FramePadding.y},
+                         {start.x + ImGui::GetTreeNodeToLabelSpacing() - 2.0f + iconSize,
+                          start.y + ImGui::GetStyle().FramePadding.y + iconSize},
+                         ImGui::GetColorU32(ImGuiCol_Text));
+            if (ImGui::IsItemClicked())
+                m_FocusUIPanel = true;
+            UI::Tooltip("Screen-space UI is edited in the UI panel");
         }
 
         if (dragged && dropIndex >= 0) {

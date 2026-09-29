@@ -27,14 +27,13 @@ struct Entity {
     std::optional<RigidbodyComponent> rigidbody;
     std::optional<LightComponent> light;
     std::optional<CameraComponent> camera;
+    std::optional<RectTransform> rectTransform; // present on every screen-space UI element
     std::optional<UIImageComponent> uiImage;
     std::optional<UITextComponent> uiText;
 
+    bool IsUI() const { return rectTransform.has_value(); }
     // Screen-space UI element with no 3D presence (its Transform is unused).
-    bool IsUIOnly() const
-    {
-        return (uiImage || uiText) && !meshRenderer && !collider && !rigidbody && !light && !camera;
-    }
+    bool IsUIOnly() const { return rectTransform && !meshRenderer && !collider && !rigidbody && !light && !camera; }
 };
 
 struct SceneSettings {
@@ -43,6 +42,8 @@ struct SceneSettings {
     float ambientIntensity = 1.0f;
     glm::vec3 gravity{0.0f, -9.81f, 0.0f};
     glm::vec2 uiReferenceResolution{1920.0f, 1080.0f};
+    UIScaleMode uiScaleMode = UIScaleMode::ScaleWithScreenSize;
+    float uiMatchWidthOrHeight = 1.0f; // 0 = match width, 1 = match height (like Unity's Canvas Scaler)
 };
 
 class Scene {
@@ -58,6 +59,8 @@ public:
     const Entity* Get(EntityID id) const;
     Entity* Find(const std::string& name);
     int IndexOf(EntityID id) const;
+    // True if `ancestor` is `id` or one of its UI parents.
+    bool IsUIDescendant(EntityID id, EntityID ancestor) const;
     void Move(EntityID id, int newIndex);
 
     // First active entity with a light / camera component.

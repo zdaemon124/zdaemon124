@@ -44,6 +44,9 @@ struct SceneRenderOptions {
     EntityID selected = 0;       // draws a selection outline and its collider
     bool drawAllColliders = false;
     bool drawUI = true;          // screen-space UI (off for the editor scene view)
+    bool drawWorld = true;       // sky + meshes; when false the target is cleared to `background`
+    glm::vec4 background{0.12f, 0.12f, 0.14f, 1.0f};
+    bool frustumCulling = true;
 };
 
 class Renderer {
@@ -167,6 +170,7 @@ private:
     std::filesystem::path m_AssetRoot;
     std::unique_ptr<Font> m_DefaultFont;
     bool m_FontSearched = false;
+    std::vector<UIVertex> m_UIVertexScratch; // reused every frame to avoid allocations
 
     std::vector<std::unique_ptr<Mesh>> m_Meshes;
     std::unordered_map<std::string, Mesh*> m_MeshByName;

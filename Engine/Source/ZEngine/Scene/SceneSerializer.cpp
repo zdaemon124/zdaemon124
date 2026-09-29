@@ -50,11 +50,15 @@ NLOHMANN_JSON_SERIALIZE_ENUM(TextAlign, {
     {TextAlign::Center, "Center"},
     {TextAlign::Right, "Right"},
 })
-NLOHMANN_DEFINE_TYPE_NON_INTRUSIVE_WITH_DEFAULT(UIRect, anchor, pivot, position, size, order)
-NLOHMANN_DEFINE_TYPE_NON_INTRUSIVE_WITH_DEFAULT(UIImageComponent, rect, sprite, color, preserveAspect)
-NLOHMANN_DEFINE_TYPE_NON_INTRUSIVE_WITH_DEFAULT(UITextComponent, rect, text, fontSize, color, align, shadow)
+NLOHMANN_JSON_SERIALIZE_ENUM(UIScaleMode, {
+    {UIScaleMode::ScaleWithScreenSize, "ScaleWithScreenSize"},
+    {UIScaleMode::ConstantPixelSize, "ConstantPixelSize"},
+})
+NLOHMANN_DEFINE_TYPE_NON_INTRUSIVE_WITH_DEFAULT(RectTransform, anchorMin, anchorMax, pivot, position, size, order, parent)
+NLOHMANN_DEFINE_TYPE_NON_INTRUSIVE_WITH_DEFAULT(UIImageComponent, sprite, color, preserveAspect)
+NLOHMANN_DEFINE_TYPE_NON_INTRUSIVE_WITH_DEFAULT(UITextComponent, text, fontSize, color, align, shadow)
 NLOHMANN_DEFINE_TYPE_NON_INTRUSIVE_WITH_DEFAULT(SceneSettings, skyAmbient, groundAmbient, ambientIntensity, gravity,
-                                                uiReferenceResolution)
+                                                uiReferenceResolution, uiScaleMode, uiMatchWidthOrHeight)
 
 namespace SceneSerializer {
 namespace {
@@ -75,6 +79,30 @@ void ReadOptional(const json& j, const char* key, std::optional<T>& value)
         value = it->get<T>();
     else
         value.reset();
+}
+
+// Scenes saved by v0.3 kept a rect inside UIImage/UIText with a single "anchor".
+std::optional<RectTransform> LegacyRect(const json& components)
+{
+    for (const char* key : {"UIImage", "UIText"}) {
+        auto c = components.find(key);
+        if (c == components.end() || !c->contains("rect"))
+            continue;
+        const json& r = (*c)["rect"];
+        RectTransform rect;
+        auto vec2 = [&](const char* name, glm::vec2 fallback) {
+            if (auto it = r.find(name); it != r.end() && it->is_array() && it->size() >= 2)
+                return glm::vec2(it->at(0).get<float>(), it->at(1).get<float>());
+            return fallback;
+        };
+        rect.anchorMin = rect.anchorMax = vec2("anchor", {0.5f, 0.5f});
+        rect.pivot = vec2("pivot", {0.5f, 0.5f});
+        rect.position = vec2("position", {0.0f, 0.0f});
+        rect.size = vec2("size", {100.0f, 100.0f});
+        rect.order = r.value("order", 0);
+        return rect;
+    }
+    return std::nullopt;
 }
 
 } // namespace
@@ -98,6 +126,7 @@ std::string ToString(const Scene& scene)
         WriteOptional(components, "Rigidbody", e->rigidbody);
         WriteOptional(components, "Light", e->light);
         WriteOptional(components, "Camera", e->camera);
+        WriteOptional(components, "RectTransform", e->rectTransform);
         WriteOptional(components, "UIImage", e->uiImage);
         WriteOptional(components, "UIText", e->uiText);
         entities.push_back(std::move(je));
@@ -125,8 +154,11 @@ bool FromString(Scene& scene, const std::string& text)
             ReadOptional(components, "Rigidbody", e.rigidbody);
             ReadOptional(components, "Light", e.light);
             ReadOptional(components, "Camera", e.camera);
+            ReadOptional(components, "RectTransform", e.rectTransform);
             ReadOptional(components, "UIImage", e.uiImage);
             ReadOptional(components, "UIText", e.uiText);
+            if (!e.rectTransform)
+                e.rectTransform = LegacyRect(components);
         }
     } catch (const json::exception& ex) {
         Log::Error("Failed to read scene: {}", ex.what());

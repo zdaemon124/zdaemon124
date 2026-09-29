@@ -1,6 +1,7 @@
 #include "ZEngine/Scene/Scene.h"
 
 #include <algorithm>
+#include <vector>
 
 namespace ze {
 
@@ -62,7 +63,25 @@ Entity& Scene::Duplicate(EntityID id)
 
 void Scene::DestroyEntity(EntityID id)
 {
+    // UI children go with their parent.
+    std::vector<EntityID> children;
+    for (const auto& e : m_Entities)
+        if (e->rectTransform && e->rectTransform->parent == id)
+            children.push_back(e->id);
+    for (EntityID child : children)
+        DestroyEntity(child);
     std::erase_if(m_Entities, [id](const auto& e) { return e->id == id; });
+}
+
+bool Scene::IsUIDescendant(EntityID id, EntityID ancestor) const
+{
+    for (int guard = 0; id != 0 && guard < 256; ++guard) {
+        if (id == ancestor)
+            return true;
+        const Entity* e = Get(id);
+        id = e && e->rectTransform ? e->rectTransform->parent : 0;
+    }
+    return false;
 }
 
 void Scene::Clear()

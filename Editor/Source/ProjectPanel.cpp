@@ -12,29 +12,6 @@ namespace fs = std::filesystem;
 
 namespace {
 
-struct DirEntry {
-    fs::path path;
-    bool directory;
-};
-
-std::vector<DirEntry> ListDirectory(const fs::path& dir)
-{
-    std::vector<DirEntry> entries;
-    std::error_code ec;
-    for (const auto& item : fs::directory_iterator(dir, ec)) {
-        std::string name = item.path().filename().string();
-        if (name.empty() || name[0] == '.')
-            continue;
-        entries.push_back({item.path(), item.is_directory(ec)});
-    }
-    std::sort(entries.begin(), entries.end(), [](const DirEntry& a, const DirEntry& b) {
-        if (a.directory != b.directory)
-            return a.directory;
-        return a.path.filename().string() < b.path.filename().string();
-    });
-    return entries;
-}
-
 fs::path UniquePath(const fs::path& dir, const std::string& stem, const std::string& extension)
 {
     fs::path candidate = dir / (stem + extension);
@@ -95,7 +72,7 @@ void EditorApp::DrawProject()
         ImGui::BeginChild("tree");
         std::function<void(const fs::path&)> drawFolder = [&](const fs::path& dir) {
             bool hasChildren = false;
-            for (const auto& entry : ListDirectory(dir))
+            for (const auto& entry : ListDirectoryCached(dir))
                 if (entry.directory) { hasChildren = true; break; }
             ImGuiTreeNodeFlags flags = ImGuiTreeNodeFlags_OpenOnArrow | ImGuiTreeNodeFlags_SpanAvailWidth;
             if (!hasChildren)
@@ -108,7 +85,7 @@ void EditorApp::DrawProject()
             if (ImGui::IsItemClicked() && !ImGui::IsItemToggledOpen())
                 navigateTo = dir;
             if (open) {
-                for (const auto& entry : ListDirectory(dir))
+                for (const auto& entry : ListDirectoryCached(dir))
                     if (entry.directory)
                         drawFolder(entry.path);
                 ImGui::TreePop();
@@ -122,13 +99,14 @@ void EditorApp::DrawProject()
         ImGui::BeginChild("files");
         const float cell = m_ProjectIconSize + 16.0f;
         int columns = std::max(1, int(ImGui::GetContentRegionAvail().x / cell));
-        std::vector<DirEntry> entries = ListDirectory(m_ProjectCurrentDir);
+        // Copy: actions inside the loop (rename) may invalidate the cache.
+        const std::vector<ProjectEntry> entries = ListDirectoryCached(m_ProjectCurrentDir);
         if (entries.empty())
             ImGui::TextDisabled("This folder is empty. Right-click to create a folder or a scene,\n"
                                 "or drag files here from Windows Explorer.");
 
         if (ImGui::BeginTable("grid", columns)) {
-            for (const DirEntry& entry : entries) {
+            for (const ProjectEntry& entry : entries) {
                 ImGui::TableNextColumn();
                 ImGui::PushID(entry.path.string().c_str());
                 std::string name = entry.directory ? entry.path.filename().string() : entry.path.stem().string();
@@ -203,6 +181,7 @@ void EditorApp::DrawProject()
                                           (m_ProjectRenameBuffer + (entry.directory ? "" : entry.path.extension().string()));
                         if (!m_ProjectRenameBuffer.empty() && !fs::exists(target)) {
                             fs::rename(entry.path, target, ec);
+                            InvalidateProjectCache();
                             if (ec)
                                 Log::Error("Rename failed: {}", ec.message());
                             else if (m_ScenePath == entry.path)
@@ -232,6 +211,7 @@ void EditorApp::DrawProject()
                 if (ImGui::MenuItem("Folder")) {
                     fs::path dir = UniquePath(m_ProjectCurrentDir, "New Folder", "");
                     fs::create_directory(dir, ec);
+        InvalidateProjectCache();
                     m_ProjectRenaming = dir;
                     m_ProjectRenameBuffer = dir.filename().string();
                 }
@@ -245,6 +225,7 @@ void EditorApp::DrawProject()
                     light.transform.SetEulerAngles({50.0f, -30.0f, 0.0f});
                     fs::path path = UniquePath(m_ProjectCurrentDir, "New Scene", ".zscene");
                     SceneSerializer::Save(empty, path);
+        InvalidateProjectCache();
                     m_ProjectRenaming = path;
                     m_ProjectRenameBuffer = path.stem().string();
                 }
@@ -272,6 +253,7 @@ void EditorApp::DrawProject()
         ImGui::TextDisabled("You cannot undo this action.");
         if (ImGui::Button("Delete", ImVec2(120, 0))) {
             fs::remove_all(m_ProjectPendingDelete, ec);
+        InvalidateProjectCache();
             if (ec)
                 Log::Error("Delete failed: {}", ec.message());
             if (m_ScenePath == m_ProjectPendingDelete) {
@@ -313,12 +295,52 @@ void EditorApp::ImportFiles(const std::vector<fs::path>& files)
         std::string asset = Platform::PathToUtf8(fs::relative(destination, AssetsDir(), ec));
         GetRenderer().UnloadTexture(asset); // pick up the new file if it replaced an old one
         Log::Info("Imported {}", asset);
+        InvalidateProjectCache();
     }
 }
 
-std::vector<std::string> EditorApp::ListImageAssets() const
+void EditorApp::InvalidateProjectCache()
 {
-    std::vector<std::string> images;
+    m_DirCache.clear();
+    m_DirCacheTime = -1.0;
+    m_ImageAssetsTime = -1.0;
+}
+
+const std::vector<EditorApp::ProjectEntry>& EditorApp::ListDirectoryCached(const fs::path& dir)
+{
+    // Directory listings are refreshed once per second instead of every frame.
+    if (Time() - m_DirCacheTime > 1.0) {
+        m_DirCache.clear();
+        m_DirCacheTime = Time();
+    }
+    std::string key = dir.string();
+    auto it = m_DirCache.find(key);
+    if (it != m_DirCache.end())
+        return it->second;
+
+    std::vector<ProjectEntry> entries;
+    std::error_code ec;
+    for (const auto& item : fs::directory_iterator(dir, ec)) {
+        std::string name = item.path().filename().string();
+        if (name.empty() || name[0] == '.')
+            continue;
+        entries.push_back({item.path(), item.is_directory(ec)});
+    }
+    std::sort(entries.begin(), entries.end(), [](const ProjectEntry& a, const ProjectEntry& b) {
+        if (a.directory != b.directory)
+            return a.directory;
+        return a.path.filename().string() < b.path.filename().string();
+    });
+    return m_DirCache[key] = std::move(entries);
+}
+
+const std::vector<std::string>& EditorApp::ListImageAssets()
+{
+    if (m_ImageAssetsTime >= 0.0 && Time() - m_ImageAssetsTime < 2.0)
+        return m_ImageAssetsCache;
+    m_ImageAssetsTime = Time();
+    std::vector<std::string>& images = m_ImageAssetsCache;
+    images.clear();
     std::error_code ec;
     for (auto it = fs::recursive_directory_iterator(AssetsDir(), ec); it != fs::recursive_directory_iterator();
          it.increment(ec)) {

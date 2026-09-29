@@ -41,10 +41,21 @@ public:
     PerspectiveLens lens;
     float moveSpeed = 6.0f;
     float lookSensitivity = 0.15f; // degrees per pixel
+    float lookSmoothing = 0.03f;   // seconds to reach ~63% of the target rotation (0 = raw)
+    float moveSmoothing = 0.08f;   // seconds of acceleration / deceleration
 
 private:
-    float m_Yaw = 0.0f;   // around +Y
+    void ApplyRotation();
+
+    float m_Yaw = 0.0f;   // around +Y (current, smoothed)
     float m_Pitch = 0.0f; // around +X
+    float m_TargetYaw = 0.0f;
+    float m_TargetPitch = 0.0f;
+    glm::vec3 m_Velocity{0.0f};
+    glm::vec3 m_ZoomOffset{0.0f};   // remaining wheel movement, applied smoothly
+    glm::vec3 m_FocusTarget{0.0f};
+    float m_FocusTime = -1.0f;      // >= 0 while flying to a focused object
+    glm::vec3 m_FocusStart{0.0f};
     bool m_Looking = false;
     bool m_Panning = false;
 };

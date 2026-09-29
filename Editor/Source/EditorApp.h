@@ -1,6 +1,7 @@
 #pragma once
 
 #include <ZEngine/ZEngine.h>
+#include <ZEngine/Scene/UILayout.h>
 #include <ZEngine/UI/ImGuiLayer.h>
 
 #include <ImGuizmo.h>
@@ -9,6 +10,7 @@
 #include <functional>
 #include <memory>
 #include <string>
+#include <unordered_map>
 #include <vector>
 
 namespace ze {
@@ -44,19 +46,34 @@ private:
     void DrawSceneSettings();      // InspectorPanel.cpp
     void DrawProject();            // ProjectPanel.cpp
     void DrawConsole();            // ConsolePanel.cpp
+    bool m_HierarchyFocused = false;
     void DrawSceneView();          // Viewports.cpp
     void DrawGameView();           // Viewports.cpp
     void DrawStats();              // Viewports.cpp
     void DrawSceneToolbar();       // Viewports.cpp
     void DrawGameViewUIOverlay(ImVec2 origin, ImVec2 size, bool hovered); // Viewports.cpp
-    void DrawUIRectProperties(UIRect& rect, bool& changed);                // InspectorPanel.cpp
+    void DrawRectTransform(Entity& entity, bool& changed);                  // InspectorPanel.cpp
     bool DrawSpriteField(std::string& sprite);                              // InspectorPanel.cpp
+    void DrawUIPanel();                                                     // UIPanel.cpp
+    void DrawUILayers();                                                    // UIPanel.cpp
+    void DrawUICanvas();                                                    // UIPanel.cpp
+    void ReparentUI(EntityID child, EntityID newParent);                    // UIPanel.cpp
+    // UI layout at the reference resolution (used for editing in canvas units).
+    UILayoutResult ReferenceLayout() const;                                 // UIPanel.cpp
     void CreateSampleSprites();    // UIObjects.cpp
-    Entity& CreateUIImage(const std::string& sprite, glm::vec2 position);   // UIObjects.cpp
-    Entity& CreateUIText(const std::string& text);                          // UIObjects.cpp
+    Entity& CreateUIImage(const std::string& sprite, glm::vec2 position, EntityID parent = 0); // UIObjects.cpp
+    Entity& CreateUIText(const std::string& text, EntityID parent = 0);                        // UIObjects.cpp
+    Entity& CreateUIGroup(const std::string& name, EntityID parent = 0);                       // UIObjects.cpp
+    EntityID SelectedUIParent();   // selected UI element, to create new elements inside it
     void CreateSampleHUD();        // UIObjects.cpp
     void ImportFiles(const std::vector<std::filesystem::path>& files);      // ProjectPanel.cpp
-    std::vector<std::string> ListImageAssets() const;                       // ProjectPanel.cpp
+    const std::vector<std::string>& ListImageAssets();                      // ProjectPanel.cpp (cached)
+    struct ProjectEntry {
+        std::filesystem::path path;
+        bool directory = false;
+    };
+    const std::vector<ProjectEntry>& ListDirectoryCached(const std::filesystem::path& dir); // ProjectPanel.cpp
+    void InvalidateProjectCache();
 
     // ---- Scene management
     void NewScene();
@@ -138,6 +155,31 @@ private:
 
     // Game view UI editing
     bool m_DraggingUI = false;
+
+    // UI panel
+    std::unique_ptr<RenderTarget> m_UITarget;
+    VkExtent2D m_UITargetSize{1920, 1080};
+    bool m_UIPanelVisible = false;
+    bool m_UIPanelFocused = false;
+    int m_UIResolution = 1; // 1920 x 1080
+    int m_UIBackground = 0; // 0 = game camera, 1 = dark, 2 = light
+    float m_UIZoom = 0.0f;  // 0 = fit
+    glm::vec2 m_UIPan{0.0f};
+    bool m_UISnap = true;
+    bool m_UIShowAnchors = true;
+    int m_UIDragHandle = -1; // -1 none, 0 move, 1..8 resize handles
+    EntityID m_UIDragEntity = 0;
+    CanvasRect m_UIDragStartRect;
+    glm::vec2 m_UIDragStartMouse{0.0f};
+    bool m_FocusUIPanel = false;
+
+    // Caches (avoid touching the disk every frame)
+    std::unordered_map<std::string, std::vector<ProjectEntry>> m_DirCache;
+    double m_DirCacheTime = -1.0;
+    std::vector<std::string> m_ImageAssetsCache;
+    double m_ImageAssetsTime = -1.0;
+    std::vector<LogEntry> m_ConsoleCache;
+    int m_ConsoleCounts[3] = {0, 0, 0};
 
     // Console
     bool m_ConsoleShowInfo = true;

@@ -21,7 +21,7 @@ protected:
         if (Input::GetKeyDown(Key::Space))
             ShootBall();
 
-        m_Camera.Update(deltaTime);
+        m_Camera.Update(SmoothDeltaTime());
         m_Physics.Update(m_Scene, deltaTime);
     }
 
@@ -67,7 +67,7 @@ private:
         hint.uiText = UITextComponent{};
         hint.uiText->text = "Space - throw a ball    R - restart    RMB + WASD - fly";
         hint.uiText->fontSize = 28.0f;
-        hint.uiText->rect = {{0.5f, 1.0f}, {0.5f, 1.0f}, {0.0f, -20.0f}, {1200.0f, 50.0f}, 0};
+        hint.rectTransform = RectTransform::Anchored({0.5f, 1.0f}, {0.0f, -20.0f}, {1200.0f, 50.0f});
 
         m_Physics.Start(m_Scene);
     }

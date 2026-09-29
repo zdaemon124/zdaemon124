@@ -63,6 +63,7 @@ void Application::Run()
         float realDelta = static_cast<float>(now - last);
         last = now;
         m_DeltaTime = std::min(realDelta, 0.1f); // avoid huge steps after stalls
+        m_SmoothDeltaTime += (m_DeltaTime - m_SmoothDeltaTime) * 0.2f;
         m_Time += m_DeltaTime;
         m_Renderer->SetTime(m_Time);
 

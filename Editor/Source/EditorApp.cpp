@@ -27,6 +27,7 @@ EditorApp::EditorApp(const ApplicationDesc& desc, int argc, char** argv) : Appli
     ImGuizmo::AllowAxisFlip(false); // keep axes pointing along +X/+Y/+Z like Unity
     m_SceneTarget = GetRenderer().CreateRenderTarget(m_SceneViewSize);
     m_GameTarget = GetRenderer().CreateRenderTarget(m_GameViewSize);
+    m_UITarget = GetRenderer().CreateRenderTarget(m_UITargetSize);
 }
 
 EditorApp::~EditorApp()
@@ -34,8 +35,10 @@ EditorApp::~EditorApp()
     GetRenderer().WaitIdle();
     m_ImGui->ReleaseTexture(*m_SceneTarget);
     m_ImGui->ReleaseTexture(*m_GameTarget);
+    m_ImGui->ReleaseTexture(*m_UITarget);
     GetRenderer().DestroyRenderTarget(*m_SceneTarget);
     GetRenderer().DestroyRenderTarget(*m_GameTarget);
+    GetRenderer().DestroyRenderTarget(*m_UITarget);
     m_ImGui.reset();
 }
 
@@ -81,7 +84,7 @@ bool EditorApp::OnCloseRequested()
 
 void EditorApp::OnUpdate(float deltaTime)
 {
-    m_EditorCamera.Update(deltaTime, m_SceneViewHovered);
+    m_EditorCamera.Update(SmoothDeltaTime(), m_SceneViewHovered);
 
     if (m_PlayState == PlayState::Playing) {
         m_Physics.Update(m_Scene, deltaTime);
@@ -98,6 +101,7 @@ void EditorApp::OnRender()
     // Resize viewports to the sizes their panels had last frame (must happen outside a frame).
     renderer.ResizeRenderTarget(*m_SceneTarget, m_SceneViewSize);
     renderer.ResizeRenderTarget(*m_GameTarget, m_GameViewSize);
+    renderer.ResizeRenderTarget(*m_UITarget, m_UITargetSize);
 
     if (!renderer.BeginFrame())
         return;
@@ -115,6 +119,7 @@ void EditorApp::OnRender()
     DrawConsole();
     DrawGameView();
     DrawSceneView();
+    DrawUIPanel();
     DrawModals();
     if (tint)
         ImGui::PopStyleColor(2);
@@ -135,6 +140,20 @@ void EditorApp::OnRender()
             float aspect = float(m_GameTarget->extent.width) / float(m_GameTarget->extent.height);
             renderer.DrawScene(*m_GameTarget, m_Scene, MakeCameraData(cam->transform, lens, aspect));
         }
+    }
+
+    if (m_UIPanelVisible) {
+        SceneRenderOptions options;
+        const Entity* cam = m_UIBackground == 0 ? m_Scene.MainCamera() : nullptr;
+        options.drawWorld = cam != nullptr;
+        options.background = m_UIBackground == 2 ? glm::vec4(0.78f, 0.78f, 0.8f, 1.0f) : glm::vec4(0.13f, 0.13f, 0.15f, 1.0f);
+        float aspect = float(m_UITarget->extent.width) / float(m_UITarget->extent.height);
+        CameraData data = m_EditorCamera.Data(aspect);
+        if (cam) {
+            PerspectiveLens lens{cam->camera->fieldOfView, cam->camera->nearClip, cam->camera->farClip};
+            data = MakeCameraData(cam->transform, lens, aspect);
+        }
+        renderer.DrawScene(*m_UITarget, m_Scene, data, options);
     }
 
     renderer.BeginScreenPass(true);
@@ -186,6 +205,7 @@ void EditorApp::BuildDefaultLayout(ImGuiID dockspace)
     ImGui::DockBuilderDockWindow("Hierarchy", left);
     ImGui::DockBuilderDockWindow("Scene", center);
     ImGui::DockBuilderDockWindow("Game", center);
+    ImGui::DockBuilderDockWindow("UI", center);
     ImGui::DockBuilderDockWindow("Inspector", right);
     ImGui::DockBuilderDockWindow("Project", bottom);
     ImGui::DockBuilderDockWindow("Console", bottom);
@@ -415,8 +435,7 @@ void EditorApp::HandleShortcuts()
 
     bool sceneFocus = m_SceneViewHovered || m_SceneViewFocused ||
                       ImGui::IsWindowFocused(ImGuiFocusedFlags_AnyWindow) == false;
-    bool hierarchyFocus = ImGui::GetCurrentContext()->NavWindow &&
-                          std::string_view(ImGui::GetCurrentContext()->NavWindow->Name) == "Hierarchy";
+    bool hierarchyFocus = m_HierarchyFocused || m_UIPanelFocused;
     if (ImGui::IsKeyPressed(ImGuiKey_Delete, false) && (sceneFocus || hierarchyFocus))
         DeleteSelected();
     if (ImGui::IsKeyPressed(ImGuiKey_F, false) && (sceneFocus || hierarchyFocus))
@@ -426,7 +445,7 @@ void EditorApp::HandleShortcuts()
         m_RenameBuffer = Selected()->name;
     }
 
-    if (!ctrl && sceneFocus && !m_EditorCamera.IsControlling()) {
+    if (!ctrl && (sceneFocus || m_UIPanelFocused) && !m_EditorCamera.IsControlling()) {
         if (ImGui::IsKeyPressed(ImGuiKey_W, false)) m_GizmoOperation = ImGuizmo::TRANSLATE;
         if (ImGui::IsKeyPressed(ImGuiKey_E, false)) m_GizmoOperation = ImGuizmo::ROTATE;
         if (ImGui::IsKeyPressed(ImGuiKey_R, false)) m_GizmoOperation = ImGuizmo::SCALE;
@@ -528,6 +547,7 @@ bool EditorApp::SaveSceneAs(const std::filesystem::path& path)
         return false;
     m_ScenePath = path;
     m_Dirty = false;
+    InvalidateProjectCache();
     Log::Info("Saved scene {}", RelativeToAssets(path));
     return true;
 }
@@ -621,6 +641,10 @@ void EditorApp::FocusSelected()
     Entity* e = Selected();
     if (!e)
         return;
+    if (e->IsUIOnly()) {
+        m_FocusUIPanel = true;
+        return;
+    }
     float radius = 0.5f;
     if (e->meshRenderer)
         if (const Mesh* mesh = GetRenderer().FindMesh(e->meshRenderer->mesh))
