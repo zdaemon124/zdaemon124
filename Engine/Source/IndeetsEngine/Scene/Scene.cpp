@@ -1,4 +1,5 @@
 #include "IndeetsEngine/Scene/Scene.h"
+#include "IndeetsEngine/Scene/SceneSerializer.h"
 
 #include <glm/gtx/matrix_decompose.hpp>
 
@@ -27,6 +28,7 @@ Entity& Scene::CreateEntity(const std::string& name, EntityID id)
     entity->id = id;
     m_NextID = std::max(m_NextID, id + 1);
     entity->name = name;
+    m_Index[id] = entity.get();
     m_Entities.push_back(std::move(entity));
     return *m_Entities.back();
 }
@@ -73,6 +75,9 @@ Entity& Scene::Duplicate(EntityID id)
         if (e.rectTransform)
             if (auto it = remap.find(e.rectTransform->parent); it != remap.end())
                 e.rectTransform->parent = it->second;
+        // Script references inside the copied subtree point at the copies, like Unity.
+        for (ScriptComponent& script : e.scripts)
+            SceneSerializer::RemapEntityReferences(script.fields, remap, false);
         // Place the copies right after the original subtree, like Unity.
         Move(e.id, insertAt++);
     }
@@ -84,6 +89,19 @@ void Scene::DestroyEntity(EntityID id)
     std::vector<EntityID> subtree = Subtree(id);
     std::unordered_set<EntityID> doomed(subtree.begin(), subtree.end());
     std::erase_if(m_Entities, [&](const auto& e) { return doomed.contains(e->id); });
+    for (EntityID doomedId : doomed)
+        m_Index.erase(doomedId);
+}
+
+bool Scene::IsActiveInHierarchy(EntityID id) const
+{
+    for (int guard = 0; id != kInvalidEntity && guard < 1024; ++guard) {
+        const Entity* e = Get(id);
+        if (!e || !e->active)
+            return false;
+        id = e->parent ? e->parent : (e->rectTransform ? e->rectTransform->parent : kInvalidEntity);
+    }
+    return true;
 }
 
 std::vector<EntityID> Scene::Children(EntityID id) const
@@ -205,24 +223,21 @@ bool Scene::IsUIDescendant(EntityID id, EntityID ancestor) const
 void Scene::Clear()
 {
     m_Entities.clear();
+    m_Index.clear();
     m_NextID = 1;
     settings = {};
 }
 
 Entity* Scene::Get(EntityID id)
 {
-    for (auto& e : m_Entities)
-        if (e->id == id)
-            return e.get();
-    return nullptr;
+    auto it = m_Index.find(id);
+    return it != m_Index.end() ? it->second : nullptr;
 }
 
 const Entity* Scene::Get(EntityID id) const
 {
-    for (const auto& e : m_Entities)
-        if (e->id == id)
-            return e.get();
-    return nullptr;
+    auto it = m_Index.find(id);
+    return it != m_Index.end() ? it->second : nullptr;
 }
 
 Entity* Scene::Find(const std::string& name)

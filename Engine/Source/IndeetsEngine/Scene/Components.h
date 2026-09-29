@@ -93,6 +93,14 @@ struct UITextComponent {
 
 enum class UIScaleMode { ScaleWithScreenSize, ConstantPixelSize };
 
+// A C# script (MonoBehaviour) attached to an entity. The class lives in the project's compiled
+// scripts; `fields` holds the serialized field values as a JSON object (Unity's serialization rules).
+struct ScriptComponent {
+    std::string className;
+    bool enabled = true;
+    std::string fields = "{}";
+};
+
 const char* ColliderShapeName(ColliderShape shape);
 
 } // namespace ie

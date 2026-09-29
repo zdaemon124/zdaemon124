@@ -173,6 +173,7 @@ void PhysicsWorld::Start(Scene& scene)
 void PhysicsWorld::AddEntity(const Entity& entity)
 {
     JPH::BodyInterface& bodies = m_Impl->system->GetBodyInterface();
+    RemoveEntity(entity.id);
     if (!entity.active || !entity.collider)
         return;
     const ColliderComponent& collider = *entity.collider;
@@ -211,12 +212,30 @@ void PhysicsWorld::AddEntity(const Entity& entity)
     m_Impl->entityByBody[id.GetIndexAndSequenceNumber()] = entity.id;
 }
 
-void PhysicsWorld::Update(Scene& scene, float deltaTime)
+void PhysicsWorld::RemoveEntity(EntityID entity)
+{
+    auto it = m_Impl->bodies.find(entity);
+    if (it == m_Impl->bodies.end())
+        return;
+    JPH::BodyInterface& bodies = m_Impl->system->GetBodyInterface();
+    m_Impl->entityByBody.erase(it->second.body.GetIndexAndSequenceNumber());
+    bodies.RemoveBody(it->second.body);
+    bodies.DestroyBody(it->second.body);
+    m_Impl->bodies.erase(it);
+}
+
+bool PhysicsWorld::HasBody(EntityID entity) const { return m_Impl->bodies.contains(entity); }
+
+void PhysicsWorld::Update(Scene& scene, float deltaTime, const std::function<void()>& beforeStep)
 {
     if (!m_Running)
         return;
     m_Accumulator = std::min(m_Accumulator + deltaTime, kFixedTimeStep * 5.0f); // avoid spiral of death
     while (m_Accumulator >= kFixedTimeStep) {
+        if (beforeStep) {
+            beforeStep();
+            scene.UpdateWorldTransforms();
+        }
         FixedStep(scene);
         m_Accumulator -= kFixedTimeStep;
     }
@@ -291,6 +310,42 @@ void PhysicsWorld::SetLinearVelocity(EntityID entity, const glm::vec3& velocity)
 {
     if (auto it = m_Impl->bodies.find(entity); it != m_Impl->bodies.end())
         m_Impl->system->GetBodyInterface().SetLinearVelocity(it->second.body, ToJolt(velocity));
+}
+
+glm::vec3 PhysicsWorld::GetLinearVelocity(EntityID entity) const
+{
+    if (auto it = m_Impl->bodies.find(entity); it != m_Impl->bodies.end())
+        return ToGlm(m_Impl->system->GetBodyInterface().GetLinearVelocity(it->second.body));
+    return glm::vec3(0.0f);
+}
+
+void PhysicsWorld::SetAngularVelocity(EntityID entity, const glm::vec3& velocity)
+{
+    if (auto it = m_Impl->bodies.find(entity); it != m_Impl->bodies.end())
+        m_Impl->system->GetBodyInterface().SetAngularVelocity(it->second.body, ToJolt(velocity));
+}
+
+glm::vec3 PhysicsWorld::GetAngularVelocity(EntityID entity) const
+{
+    if (auto it = m_Impl->bodies.find(entity); it != m_Impl->bodies.end())
+        return ToGlm(m_Impl->system->GetBodyInterface().GetAngularVelocity(it->second.body));
+    return glm::vec3(0.0f);
+}
+
+void PhysicsWorld::AddForce(EntityID entity, const glm::vec3& force)
+{
+    if (auto it = m_Impl->bodies.find(entity); it != m_Impl->bodies.end())
+        m_Impl->system->GetBodyInterface().AddForce(it->second.body, ToJolt(force));
+}
+
+void PhysicsWorld::Teleport(EntityID entity, const glm::vec3& position, const glm::quat& rotation)
+{
+    auto it = m_Impl->bodies.find(entity);
+    if (it == m_Impl->bodies.end() || it->second.motion == JPH::EMotionType::Kinematic)
+        return; // kinematic bodies follow their transform every step anyway
+    m_Impl->system->GetBodyInterface().SetPositionAndRotation(
+        it->second.body, JPH::RVec3(ToJolt(position)), ToJolt(glm::normalize(rotation)),
+        it->second.motion == JPH::EMotionType::Static ? JPH::EActivation::DontActivate : JPH::EActivation::Activate);
 }
 
 void PhysicsWorld::AddImpulse(EntityID entity, const glm::vec3& impulse)

@@ -1,0 +1,7 @@
+<Project>
+  <!-- CMake builds pass IE_BUILD_DIR so intermediate files stay out of the source tree. -->
+  <PropertyGroup Condition="'$(IE_BUILD_DIR)' != ''">
+    <BaseIntermediateOutputPath>$(IE_BUILD_DIR)/obj/</BaseIntermediateOutputPath>
+    <BaseOutputPath>$(IE_BUILD_DIR)/bin/</BaseOutputPath>
+  </PropertyGroup>
+</Project>

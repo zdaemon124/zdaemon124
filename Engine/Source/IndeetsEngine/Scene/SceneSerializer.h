@@ -3,6 +3,7 @@
 #include <filesystem>
 #include <cstdint>
 #include <string>
+#include <unordered_map>
 
 namespace ie {
 
@@ -24,6 +25,10 @@ uint32_t InstantiateFromString(Scene& scene, const std::string& text, uint32_t p
 bool SavePrefab(const Scene& scene, uint32_t root, const std::filesystem::path& path);
 uint32_t InstantiatePrefab(Scene& scene, const std::filesystem::path& path, uint32_t parent);
 std::string ReadTextFile(const std::filesystem::path& path);
+
+// Rewrites {"entity": id} references inside a script's serialized fields using `remap`.
+// References to ids not in the map are kept, or cleared when `dropUnmapped` is set.
+void RemapEntityReferences(std::string& fieldsJson, const std::unordered_map<uint32_t, uint32_t>& remap, bool dropUnmapped);
 
 } // namespace SceneSerializer
 } // namespace ie

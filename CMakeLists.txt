@@ -14,10 +14,14 @@ set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
 
 include(cmake/Dependencies.cmake)
 include(cmake/Shaders.cmake)
+include(cmake/Managed.cmake)
 
 add_subdirectory(Engine)
 add_subdirectory(Sandbox)
 add_subdirectory(Editor)
+
+enable_testing()
+add_subdirectory(Tests/ScriptingTests)
 
 if(MSVC)
     set_property(DIRECTORY ${CMAKE_SOURCE_DIR} PROPERTY VS_STARTUP_PROJECT Editor)

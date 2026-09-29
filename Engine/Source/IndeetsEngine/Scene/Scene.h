@@ -8,6 +8,7 @@
 #include <memory>
 #include <optional>
 #include <string>
+#include <unordered_map>
 #include <vector>
 
 namespace ie {
@@ -33,6 +34,7 @@ struct Entity {
     std::optional<RectTransform> rectTransform; // present on every screen-space UI element
     std::optional<UIImageComponent> uiImage;
     std::optional<UITextComponent> uiText;
+    std::vector<ScriptComponent> scripts;
 
     bool IsUI() const { return rectTransform.has_value(); }
     // Screen-space UI element with no 3D presence (its Transform is unused).
@@ -63,6 +65,8 @@ public:
     Entity* Get(EntityID id);
     const Entity* Get(EntityID id) const;
     Entity* Find(const std::string& name);
+    // Active itself and all its parents (Unity's GameObject.activeInHierarchy).
+    bool IsActiveInHierarchy(EntityID id) const;
     int IndexOf(EntityID id) const;
     // True if `ancestor` is `id` or one of its UI parents.
     bool IsUIDescendant(EntityID id, EntityID ancestor) const;
@@ -93,6 +97,7 @@ public:
 
 private:
     std::vector<std::unique_ptr<Entity>> m_Entities;
+    std::unordered_map<EntityID, Entity*> m_Index; // id -> entity, kept in sync by create / destroy / clear
     EntityID m_NextID = 1;
 };
 

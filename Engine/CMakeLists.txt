@@ -4,7 +4,7 @@ file(GLOB_RECURSE IE_SOURCES CONFIGURE_DEPENDS
 
 add_library(IndeetsEngine STATIC ${IE_SOURCES})
 target_include_directories(IndeetsEngine PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/Source)
-target_link_libraries(IndeetsEngine PUBLIC volk vma glm_headers glfw imgui json_headers stb_headers ufbx cgltf_headers Jolt)
+target_link_libraries(IndeetsEngine PUBLIC volk vma glm_headers glfw imgui json_headers stb_headers ufbx cgltf_headers Jolt ${CMAKE_DL_LIBS})
 target_compile_definitions(IndeetsEngine PUBLIC
     GLFW_INCLUDE_NONE
     $<$<CONFIG:Debug>:IE_DEBUG>)
@@ -29,3 +29,6 @@ ie_compile_shaders(IndeetsEngineShaders ${IE_SHADER_OUTPUT_DIR}
     SOURCES ${IE_SHADER_SOURCES}
     INCLUDES ${IE_SHADER_INCLUDES})
 add_dependencies(IndeetsEngine IndeetsEngineShaders)
+
+# Managed engine (C# scripting API + compiler) -> build/managed
+ie_add_managed_project(IndeetsEngineManaged ${CMAKE_CURRENT_SOURCE_DIR}/ScriptCore)

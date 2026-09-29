@@ -109,6 +109,40 @@ std::optional<RectTransform> LegacyRect(const json& components)
 
 } // namespace
 
+namespace {
+
+void RemapNode(json& node, const std::unordered_map<uint32_t, uint32_t>& remap, bool dropUnmapped)
+{
+    if (node.is_object()) {
+        if (node.size() == 1 && node.contains("entity") && node["entity"].is_number_unsigned()) {
+            uint32_t id = node["entity"].get<uint32_t>();
+            if (auto it = remap.find(id); it != remap.end())
+                node["entity"] = it->second;
+            else if (dropUnmapped)
+                node = nullptr;
+            return;
+        }
+        for (auto& [key, child] : node.items())
+            RemapNode(child, remap, dropUnmapped);
+    } else if (node.is_array()) {
+        for (json& child : node)
+            RemapNode(child, remap, dropUnmapped);
+    }
+}
+
+} // namespace
+
+void RemapEntityReferences(std::string& fieldsJson, const std::unordered_map<uint32_t, uint32_t>& remap, bool dropUnmapped)
+{
+    if (fieldsJson.find("\"entity\"") == std::string::npos)
+        return;
+    json fields = json::parse(fieldsJson, nullptr, false);
+    if (!fields.is_object())
+        return;
+    RemapNode(fields, remap, dropUnmapped);
+    fieldsJson = fields.dump();
+}
+
 json EntityToJson(const Entity& e)
 {
     json je;
@@ -129,6 +163,15 @@ json EntityToJson(const Entity& e)
     WriteOptional(components, "RectTransform", e.rectTransform);
     WriteOptional(components, "UIImage", e.uiImage);
     WriteOptional(components, "UIText", e.uiText);
+    if (!e.scripts.empty()) {
+        json& scripts = components["Scripts"] = json::array();
+        for (const ScriptComponent& script : e.scripts) {
+            json fields = json::parse(script.fields, nullptr, false);
+            scripts.push_back({{"class", script.className},
+                               {"enabled", script.enabled},
+                               {"fields", fields.is_object() ? fields : json::object()}});
+        }
+    }
     return je;
 }
 
@@ -147,6 +190,18 @@ void EntityFromJson(Entity& e, const json& je)
     ReadOptional(components, "RectTransform", e.rectTransform);
     ReadOptional(components, "UIImage", e.uiImage);
     ReadOptional(components, "UIText", e.uiText);
+    e.scripts.clear();
+    if (auto it = components.find("Scripts"); it != components.end() && it->is_array()) {
+        for (const json& js : *it) {
+            ScriptComponent script;
+            script.className = js.value("class", std::string());
+            script.enabled = js.value("enabled", true);
+            if (auto f = js.find("fields"); f != js.end() && f->is_object())
+                script.fields = f->dump();
+            if (!script.className.empty())
+                e.scripts.push_back(std::move(script));
+        }
+    }
     if (!e.rectTransform)
         e.rectTransform = LegacyRect(components);
 }
@@ -252,6 +307,8 @@ uint32_t InstantiateFromString(Scene& scene, const std::string& text, uint32_t p
             created.push_back(&e);
         }
         for (Entity* e : created) {
+            for (ScriptComponent& script : e->scripts)
+                RemapEntityReferences(script.fields, remap, true);
             if (auto it = remap.find(e->parent); it != remap.end())
                 e->parent = it->second;
             else
