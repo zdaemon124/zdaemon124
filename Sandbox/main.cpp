@@ -1,9 +1,7 @@
-// Demo scene: all built-in primitives on a ground plane.
+// Runtime demo without the editor: primitives with physics.
 // Controls: hold RMB + WASD/QE to fly (Shift = faster), MMB drag to pan, wheel to zoom,
-//           Space pauses the animation, Esc quits.
+//           Space shoots a ball, R restarts, Esc quits.
 #include <ZEngine/ZEngine.h>
-
-#include <cmath>
 
 using namespace ze;
 
@@ -12,62 +10,76 @@ public:
     using Application::Application;
 
 protected:
-    void OnStart() override
-    {
-        Entity& ground = CreatePrimitive(PrimitiveType::Plane, "Ground");
-        ground.transform.scale = glm::vec3(3.0f);
-        ground.meshRenderer.color = {0.45f, 0.45f, 0.45f, 1.0f};
-        ground.meshRenderer.checkerScale = 1.0f;
-
-        struct Item { PrimitiveType type; glm::vec3 position; glm::vec4 color; };
-        const Item items[] = {
-            {PrimitiveType::Cube,     {-4.5f, 0.5f, 0.0f}, {0.75f, 0.06f, 0.04f, 1.0f}},
-            {PrimitiveType::Sphere,   {-1.5f, 0.5f, 0.0f}, {0.04f, 0.25f, 0.8f, 1.0f}},
-            {PrimitiveType::Capsule,  { 1.5f, 1.0f, 0.0f}, {0.06f, 0.5f, 0.1f, 1.0f}},
-            {PrimitiveType::Cylinder, { 4.5f, 1.0f, 0.0f}, {0.9f, 0.45f, 0.03f, 1.0f}},
-        };
-        for (const Item& item : items) {
-            Entity& e = CreatePrimitive(item.type);
-            e.transform.position = item.position;
-            e.meshRenderer.color = item.color;
-        }
-
-        Entity& quad = CreatePrimitive(PrimitiveType::Quad, "Quad");
-        quad.transform.position = {0.0f, 1.5f, 4.0f};
-        quad.transform.scale = glm::vec3(3.0f);
-        quad.meshRenderer.color = {0.8f, 0.8f, 0.85f, 1.0f};
-
-        // A small tower of cubes that will be dropped by physics in a later milestone.
-        for (int i = 0; i < 5; ++i) {
-            Entity& cube = CreatePrimitive(PrimitiveType::Cube, "Stack " + std::to_string(i));
-            cube.transform.position = {-3.0f, 0.5f + float(i), 4.0f};
-            cube.transform.SetEulerAngles({0.0f, float(i) * 12.0f, 0.0f});
-            cube.meshRenderer.color = {0.8f, 0.8f, 0.8f - float(i) * 0.15f, 1.0f};
-        }
-
-        m_Spinner = &CreatePrimitive(PrimitiveType::Cube, "Spinner");
-        m_Spinner->transform.position = {3.0f, 1.5f, 4.0f};
-        m_Spinner->meshRenderer.color = {0.4f, 0.08f, 0.7f, 1.0f};
-    }
+    void OnStart() override { BuildScene(); }
 
     void OnUpdate(float deltaTime) override
     {
         if (Input::GetKeyDown(Key::Escape))
             Quit();
+        if (Input::GetKeyDown(Key::R))
+            BuildScene();
         if (Input::GetKeyDown(Key::Space))
-            m_Paused = !m_Paused;
-        if (m_Paused)
-            return;
+            ShootBall();
 
-        m_AnimTime += deltaTime;
-        m_Spinner->transform.Rotate(glm::vec3(20.0f, 45.0f, 0.0f) * deltaTime);
-        m_Spinner->transform.position.y = 1.5f + std::sin(m_AnimTime * 2.0f) * 0.4f;
+        m_Camera.Update(deltaTime);
+        m_Physics.Update(m_Scene, deltaTime);
+    }
+
+    void OnRender() override
+    {
+        GetRenderer().RenderToScreen(m_Scene, m_Camera.Data(GetRenderer().ScreenAspectRatio()));
     }
 
 private:
-    Entity* m_Spinner = nullptr;
-    float m_AnimTime = 0.0f;
-    bool m_Paused = false;
+    void BuildScene()
+    {
+        m_Physics.Stop();
+        m_Scene.Clear();
+
+        Entity& sun = m_Scene.CreateEntity("Directional Light");
+        sun.light = LightComponent{};
+        sun.transform.SetEulerAngles({50.0f, -30.0f, 0.0f});
+
+        Entity& ground = m_Scene.CreatePrimitive(PrimitiveType::Plane, "Ground");
+        ground.transform.scale = glm::vec3(3.0f);
+        ground.meshRenderer->color = {0.72f, 0.72f, 0.72f, 1.0f};
+        ground.meshRenderer->checkerScale = 1.0f;
+
+        const glm::vec4 colors[] = {{0.9f, 0.3f, 0.25f, 1}, {0.3f, 0.55f, 0.95f, 1}, {0.35f, 0.8f, 0.4f, 1},
+                                    {0.98f, 0.75f, 0.2f, 1}, {0.7f, 0.4f, 0.9f, 1}};
+        // A pyramid of boxes.
+        int index = 0;
+        for (int row = 0; row < 5; ++row)
+            for (int i = 0; i < 5 - row; ++i) {
+                Entity& box = m_Scene.CreatePrimitive(PrimitiveType::Cube, "Box");
+                box.transform.position = {-2.0f + float(i) + row * 0.5f, 0.5f + float(row), 3.0f};
+                box.meshRenderer->color = colors[index++ % 5];
+                box.rigidbody = RigidbodyComponent{};
+            }
+
+        Entity& capsule = m_Scene.CreatePrimitive(PrimitiveType::Capsule);
+        capsule.transform.position = {4.0f, 3.0f, 0.0f};
+        capsule.transform.SetEulerAngles({0.0f, 0.0f, 35.0f});
+        capsule.meshRenderer->color = colors[2];
+        capsule.rigidbody = RigidbodyComponent{};
+
+        m_Physics.Start(m_Scene);
+    }
+
+    void ShootBall()
+    {
+        Entity& ball = m_Scene.CreatePrimitive(PrimitiveType::Sphere, "Ball");
+        ball.transform.position = m_Camera.transform.position + m_Camera.transform.Forward();
+        ball.meshRenderer->color = {0.95f, 0.95f, 0.95f, 1.0f};
+        ball.rigidbody = RigidbodyComponent{};
+        ball.rigidbody->mass = 5.0f;
+        m_Physics.AddEntity(ball);
+        m_Physics.SetLinearVelocity(ball.id, m_Camera.transform.Forward() * 25.0f);
+    }
+
+    Scene m_Scene;
+    EditorCamera m_Camera;
+    PhysicsWorld m_Physics;
 };
 
 int main(int argc, char** argv)

@@ -1,6 +1,6 @@
 #pragma once
 
-#include "ZEngine/Renderer/Mesh.h"
+#include "ZEngine/Renderer/MeshData.h"
 
 namespace ze {
 

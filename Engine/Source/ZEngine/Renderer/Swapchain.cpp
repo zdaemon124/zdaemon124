@@ -40,10 +40,10 @@ void Swapchain::Create(VkExtent2D desiredExtent, VkSwapchainKHR oldSwapchain)
     std::vector<VkSurfaceFormatKHR> formats(formatCount);
     vkGetPhysicalDeviceSurfaceFormatsKHR(gpu, surface, &formatCount, formats.data());
 
-    // Prefer an sRGB format so shaders can output linear colors.
+    // UNORM swapchain: scene shaders output gamma-encoded colors and ImGui expects UNORM.
     VkSurfaceFormatKHR chosen = formats[0];
     for (const auto& f : formats) {
-        if ((f.format == VK_FORMAT_B8G8R8A8_SRGB || f.format == VK_FORMAT_R8G8B8A8_SRGB) &&
+        if ((f.format == VK_FORMAT_B8G8R8A8_UNORM || f.format == VK_FORMAT_R8G8B8A8_UNORM) &&
             f.colorSpace == VK_COLOR_SPACE_SRGB_NONLINEAR_KHR) {
             chosen = f;
             break;

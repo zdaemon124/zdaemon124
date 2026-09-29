@@ -37,7 +37,40 @@ FetchContent_Declare(glfw
     GIT_TAG        3.4
     GIT_SHALLOW    TRUE)
 
-FetchContent_MakeAvailable(vulkan_headers volk vma glm glfw)
+FetchContent_Declare(imgui
+    GIT_REPOSITORY https://github.com/ocornut/imgui.git
+    GIT_TAG        v1.92.9b-docking
+    GIT_SHALLOW    TRUE
+    SOURCE_SUBDIR  _none)
+FetchContent_Declare(imguizmo
+    GIT_REPOSITORY https://github.com/CedricGuillemet/ImGuizmo.git
+    GIT_TAG        18cef5e031d8c6973d80284c67f60549fafd78c1
+    SOURCE_SUBDIR  _none)
+FetchContent_Declare(nlohmann_json
+    GIT_REPOSITORY https://github.com/nlohmann/json.git
+    GIT_TAG        v3.12.0
+    GIT_SHALLOW    TRUE
+    SOURCE_SUBDIR  _none)
+
+# Jolt Physics (the CMake project lives in the Build/ subfolder).
+set(TARGET_UNIT_TESTS         OFF CACHE BOOL "" FORCE)
+set(TARGET_HELLO_WORLD        OFF CACHE BOOL "" FORCE)
+set(TARGET_PERFORMANCE_TEST   OFF CACHE BOOL "" FORCE)
+set(TARGET_SAMPLES            OFF CACHE BOOL "" FORCE)
+set(TARGET_VIEWER             OFF CACHE BOOL "" FORCE)
+set(ENABLE_ALL_WARNINGS       OFF CACHE BOOL "" FORCE)
+set(INTERPROCEDURAL_OPTIMIZATION OFF CACHE BOOL "" FORCE)
+set(OVERRIDE_CXX_FLAGS        OFF CACHE BOOL "" FORCE)
+set(USE_STATIC_MSVC_RUNTIME_LIBRARY ON CACHE BOOL "" FORCE)
+set(DEBUG_RENDERER_IN_DEBUG_AND_RELEASE OFF CACHE BOOL "" FORCE)
+set(PROFILER_IN_DEBUG_AND_RELEASE OFF CACHE BOOL "" FORCE)
+FetchContent_Declare(jolt
+    GIT_REPOSITORY https://github.com/jrouwe/JoltPhysics.git
+    GIT_TAG        v5.6.0
+    GIT_SHALLOW    TRUE
+    SOURCE_SUBDIR  Build)
+
+FetchContent_MakeAvailable(vulkan_headers volk vma glm glfw imgui imguizmo nlohmann_json jolt)
 
 # volk: Vulkan function loader (no link against vulkan-1.lib needed).
 add_library(volk STATIC ${volk_SOURCE_DIR}/volk.c)
@@ -53,4 +86,22 @@ target_include_directories(glm_headers SYSTEM INTERFACE ${glm_SOURCE_DIR})
 target_compile_definitions(glm_headers INTERFACE
     GLM_FORCE_DEPTH_ZERO_TO_ONE GLM_FORCE_RADIANS GLM_ENABLE_EXPERIMENTAL)
 
-set_target_properties(volk glfw PROPERTIES FOLDER "ThirdParty")
+# Dear ImGui (docking branch) with GLFW + Vulkan backends, plus ImGuizmo.
+add_library(imgui STATIC
+    ${imgui_SOURCE_DIR}/imgui.cpp
+    ${imgui_SOURCE_DIR}/imgui_draw.cpp
+    ${imgui_SOURCE_DIR}/imgui_tables.cpp
+    ${imgui_SOURCE_DIR}/imgui_widgets.cpp
+    ${imgui_SOURCE_DIR}/imgui_demo.cpp
+    ${imgui_SOURCE_DIR}/misc/cpp/imgui_stdlib.cpp
+    ${imgui_SOURCE_DIR}/backends/imgui_impl_glfw.cpp
+    ${imgui_SOURCE_DIR}/backends/imgui_impl_vulkan.cpp
+    ${imguizmo_SOURCE_DIR}/src/ImGuizmo.cpp)
+target_include_directories(imgui PUBLIC ${imgui_SOURCE_DIR} ${imgui_SOURCE_DIR}/backends ${imgui_SOURCE_DIR}/misc/cpp ${imguizmo_SOURCE_DIR}/src)
+target_compile_definitions(imgui PUBLIC IMGUI_IMPL_VULKAN_USE_VOLK IMGUI_DISABLE_OBSOLETE_FUNCTIONS GLFW_INCLUDE_NONE)
+target_link_libraries(imgui PUBLIC volk glfw)
+
+add_library(json_headers INTERFACE)
+target_include_directories(json_headers SYSTEM INTERFACE ${nlohmann_json_SOURCE_DIR}/single_include)
+
+set_target_properties(volk glfw imgui Jolt PROPERTIES FOLDER "ThirdParty")

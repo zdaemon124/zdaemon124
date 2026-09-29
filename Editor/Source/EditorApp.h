@@ -1,0 +1,146 @@
+#pragma once
+
+#include <ZEngine/ZEngine.h>
+#include <ZEngine/UI/ImGuiLayer.h>
+
+#include <ImGuizmo.h>
+
+#include <filesystem>
+#include <functional>
+#include <memory>
+#include <string>
+#include <vector>
+
+namespace ze {
+
+enum class PlayState { Edit, Playing, Paused };
+
+class EditorApp final : public Application {
+public:
+    EditorApp(const ApplicationDesc& desc, int argc, char** argv);
+    ~EditorApp() override;
+
+protected:
+    void OnStart() override;
+    void OnUpdate(float deltaTime) override;
+    void OnRender() override;
+    void OnShutdown() override;
+    bool OnCloseRequested() override;
+
+private:
+    // ---- Frame / layout (EditorApp.cpp)
+    void DrawDockspace();
+    void BuildDefaultLayout(ImGuiID dockspace);
+    void DrawMenuBar();
+    void DrawToolbar();
+    void DrawModals();
+    void HandleShortcuts();
+    void UpdateTitle();
+
+    // ---- Panels
+    void DrawHierarchy();          // HierarchyPanel.cpp
+    void DrawCreateMenuItems();    // HierarchyPanel.cpp
+    void DrawInspector();          // InspectorPanel.cpp
+    void DrawSceneSettings();      // InspectorPanel.cpp
+    void DrawProject();            // ProjectPanel.cpp
+    void DrawConsole();            // ConsolePanel.cpp
+    void DrawSceneView();          // Viewports.cpp
+    void DrawGameView();           // Viewports.cpp
+    void DrawStats();              // Viewports.cpp
+
+    // ---- Scene management
+    void NewScene();
+    void CreateDefaultScene();
+    bool OpenScene(const std::filesystem::path& path);
+    bool SaveScene();
+    bool SaveSceneAs(const std::filesystem::path& path);
+    void MarkDirty();
+    // Runs `action` after asking to save unsaved changes (if any).
+    void RequestSceneChange(std::function<void()> action);
+
+    // ---- Play mode
+    void Play();
+    void Stop();
+    void TogglePause();
+    bool IsPlaying() const { return m_PlayState != PlayState::Edit; }
+
+    // ---- Selection / editing helpers
+    Entity* Selected();
+    void Select(EntityID id);
+    void DeleteSelected();
+    void DuplicateSelected();
+    void FocusSelected();
+    Entity& CreateObject(const std::string& name);
+    Entity& CreatePrimitiveObject(PrimitiveType type);
+    EntityID PickEntity(const glm::vec3& origin, const glm::vec3& direction);
+
+    std::filesystem::path AssetsDir() const { return m_ProjectDir / "Assets"; }
+    std::string RelativeToAssets(const std::filesystem::path& path) const;
+
+    std::unique_ptr<ImGuiLayer> m_ImGui;
+    std::string m_IniPath;
+
+    Scene m_Scene;
+    PhysicsWorld m_Physics;
+    EditorCamera m_EditorCamera;
+    std::unique_ptr<RenderTarget> m_SceneTarget;
+    std::unique_ptr<RenderTarget> m_GameTarget;
+    VkExtent2D m_SceneViewSize{1280, 720};
+    VkExtent2D m_GameViewSize{1280, 720};
+    bool m_SceneViewVisible = false;
+    bool m_GameViewVisible = false;
+    bool m_SceneViewHovered = false;
+    bool m_SceneViewFocused = false;
+
+    // Selection & gizmo
+    EntityID m_Selected = 0;
+    ImGuizmo::OPERATION m_GizmoOperation = ImGuizmo::TRANSLATE;
+    ImGuizmo::MODE m_GizmoMode = ImGuizmo::LOCAL;
+    bool m_Snap = false;
+    bool m_ShowGrid = true;
+    bool m_ShowColliders = false;
+    bool m_ShowStats = true;
+    glm::vec3 m_EulerCache{0.0f};
+    EntityID m_EulerCacheEntity = 0;
+
+    // Scene file
+    std::filesystem::path m_ProjectDir;
+    std::filesystem::path m_ScenePath;
+    bool m_Dirty = false;
+
+    // Play mode
+    PlayState m_PlayState = PlayState::Edit;
+    std::string m_EditSnapshot;
+    bool m_FocusGameView = false;
+    bool m_FocusSceneView = false;
+    bool m_StepRequested = false;
+
+    // Hierarchy rename
+    EntityID m_RenamingEntity = 0;
+    std::string m_RenameBuffer;
+
+    // Project panel
+    std::filesystem::path m_ProjectCurrentDir;
+    float m_ProjectIconSize = 72.0f;
+    std::filesystem::path m_ProjectRenaming;
+    std::string m_ProjectRenameBuffer;
+    std::filesystem::path m_ProjectPendingDelete;
+
+    // Console
+    bool m_ConsoleShowInfo = true;
+    bool m_ConsoleShowWarnings = true;
+    bool m_ConsoleShowErrors = true;
+    bool m_ConsoleAutoScroll = true;
+    uint64_t m_ConsoleSeenVersion = 0;
+
+    // Modals
+    std::function<void()> m_PendingSceneAction;
+    bool m_OpenUnsavedModal = false;
+    bool m_OpenSaveAsModal = false;
+    std::string m_SaveAsBuffer;
+    bool m_OpenAboutModal = false;
+    bool m_QuitAfterSave = false;
+    bool m_LayoutReset = false;
+};
+
+} // namespace ze

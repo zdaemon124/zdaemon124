@@ -7,50 +7,52 @@
 
 #include <algorithm>
 #include <cstdlib>
-#include <format>
-#include <string_view>
 
 namespace ze {
 
 Application::Application(const ApplicationDesc& desc, int argc, char** argv)
-    : m_Title(desc.window.title)
 {
-    for (int i = 1; i + 1 < argc; ++i)
-        if (std::string_view(argv[i]) == "--frames")
-            m_ExitAfterFrames = std::strtoull(argv[i + 1], nullptr, 10);
+    for (int i = 0; i < argc; ++i)
+        m_Args.emplace_back(argv[i]);
+    if (std::string frames = ArgValue("--frames"); !frames.empty())
+        m_ExitAfterFrames = std::strtoull(frames.c_str(), nullptr, 10);
 
     m_Window = std::make_unique<Window>(desc.window);
     m_Renderer = std::make_unique<Renderer>(*m_Window, desc.renderer);
-    m_Scene = std::make_unique<Scene>();
 }
 
 Application::~Application()
 {
     m_Renderer->WaitIdle();
-    m_Scene.reset();
     m_Renderer.reset();
     m_Window.reset();
 }
 
-Entity& Application::CreatePrimitive(PrimitiveType type, const std::string& name)
+std::string Application::ArgValue(const std::string& name) const
 {
-    Entity& entity = m_Scene->CreateEntity(name.empty() ? PrimitiveName(type) : name);
-    entity.meshRenderer.mesh = m_Renderer->GetPrimitive(type);
-    return entity;
+    for (size_t i = 0; i + 1 < m_Args.size(); ++i)
+        if (m_Args[i] == name)
+            return m_Args[i + 1];
+    return {};
 }
 
-void Application::Quit() { m_Window->RequestClose(); }
+void Application::Quit() { m_QuitRequested = true; }
 
 void Application::Run()
 {
     OnStart();
 
     double last = glfwGetTime();
-    while (!m_Window->ShouldClose()) {
+    while (!m_QuitRequested) {
         Input::Detail::BeginFrame();
         m_Window->PollEvents();
         Input::Detail::EndPolling();
 
+        if (m_Window->ShouldClose()) {
+            glfwSetWindowShouldClose(m_Window->Handle(), GLFW_FALSE);
+            if (OnCloseRequested())
+                break;
+        }
         if (m_Window->IsMinimized()) {
             m_Window->WaitEvents();
             last = glfwGetTime();
@@ -62,32 +64,25 @@ void Application::Run()
         last = now;
         m_DeltaTime = std::min(realDelta, 0.1f); // avoid huge steps after stalls
         m_Time += m_DeltaTime;
+        m_Renderer->SetTime(m_Time);
 
-        m_EditorCamera.Update(m_DeltaTime);
         OnUpdate(m_DeltaTime);
-
-        m_Renderer->Render(*m_Scene, m_EditorCamera.Data(m_Renderer->AspectRatio()), m_Time);
+        OnRender();
         ++m_FrameCount;
-        UpdateTitle(realDelta);
 
+        m_FpsTimer += realDelta;
+        ++m_FpsFrames;
+        if (m_FpsTimer >= 0.5f) {
+            m_Fps = float(m_FpsFrames) / m_FpsTimer;
+            m_FpsTimer = 0.0f;
+            m_FpsFrames = 0;
+        }
         if (m_ExitAfterFrames && m_FrameCount >= m_ExitAfterFrames)
             Quit();
     }
 
     m_Renderer->WaitIdle();
     OnShutdown();
-}
-
-void Application::UpdateTitle(float realDelta)
-{
-    m_FpsTimer += realDelta;
-    ++m_FpsFrames;
-    if (m_FpsTimer >= 0.5f) {
-        float fps = float(m_FpsFrames) / m_FpsTimer;
-        m_Window->SetTitle(std::format("{} | {:.0f} FPS ({:.2f} ms)", m_Title, fps, 1000.0f / fps));
-        m_FpsTimer = 0.0f;
-        m_FpsFrames = 0;
-    }
 }
 
 } // namespace ze

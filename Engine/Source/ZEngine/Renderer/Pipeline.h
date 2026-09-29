@@ -18,6 +18,8 @@ struct GraphicsPipelineDesc {
     bool depthTest = true;
     bool depthWrite = true;
     bool alphaBlend = false;
+    float depthBiasConstant = 0.0f; // != 0 enables depth bias (negative = towards the camera)
+    float depthBiasSlope = 0.0f;
     bool meshVertexInput = true; // false for full-screen passes without vertex buffers
 };
 

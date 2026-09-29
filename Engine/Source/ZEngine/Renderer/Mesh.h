@@ -1,26 +1,11 @@
 #pragma once
 
+#include "ZEngine/Renderer/MeshData.h"
 #include "ZEngine/Renderer/VulkanCommon.h"
 
-#include <glm/vec2.hpp>
-#include <glm/vec3.hpp>
-
 #include <string>
-#include <vector>
 
 namespace ze {
-
-struct Vertex {
-    glm::vec3 position;
-    glm::vec3 normal;
-    glm::vec2 uv;
-};
-
-// CPU-side geometry.
-struct MeshData {
-    std::vector<Vertex> vertices;
-    std::vector<uint32_t> indices;
-};
 
 // GPU-side geometry, owned by the Renderer.
 struct Mesh {

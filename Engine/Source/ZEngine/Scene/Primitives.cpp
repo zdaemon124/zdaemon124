@@ -3,6 +3,9 @@
 #include <glm/glm.hpp>
 #include <glm/gtc/constants.hpp>
 
+#include <algorithm>
+#include <cmath>
+
 #include <utility>
 
 namespace ze {

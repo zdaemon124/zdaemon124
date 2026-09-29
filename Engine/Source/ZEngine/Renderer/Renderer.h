@@ -8,6 +8,7 @@
 #include <array>
 #include <memory>
 #include <string>
+#include <unordered_map>
 #include <vector>
 
 namespace ze {
@@ -16,15 +17,36 @@ class Window;
 class VulkanContext;
 class Swapchain;
 class Scene;
+struct Entity;
+using EntityID = uint32_t;
 
 struct RendererSettings {
     bool vsync = true;
     glm::vec4 clearColor{0.1f, 0.1f, 0.12f, 1.0f};
 };
 
+// Off-screen color + depth images a scene is rendered into (editor viewports, game view).
+struct RenderTarget {
+    AllocatedImage color;
+    AllocatedImage depth;
+    VkExtent2D extent{};
+    // Cached ImGui texture handle (managed by ImGuiLayer).
+    VkImageView uiView = VK_NULL_HANDLE;
+    VkDescriptorSet uiTexture = VK_NULL_HANDLE;
+};
+
+struct SceneRenderOptions {
+    bool drawGrid = false;
+    EntityID selected = 0;       // draws a selection outline and its collider
+    bool drawAllColliders = false;
+};
+
 class Renderer {
 public:
     static constexpr uint32_t kFramesInFlight = 2;
+    static constexpr uint32_t kMaxViewsPerFrame = 8;
+    static constexpr VkFormat kColorFormat = VK_FORMAT_R8G8B8A8_UNORM;
+    static constexpr VkFormat kDepthFormat = VK_FORMAT_D32_SFLOAT;
 
     Renderer(Window& window, const RendererSettings& settings = {});
     ~Renderer();
@@ -32,17 +54,39 @@ public:
     Renderer(const Renderer&) = delete;
     Renderer& operator=(const Renderer&) = delete;
 
-    // Meshes are owned by the renderer and live until it is destroyed.
+    // ---- Meshes (owned by the renderer, live until it is destroyed) ----
     Mesh* CreateMesh(const std::string& name, const MeshData& data);
+    Mesh* FindMesh(const std::string& name) const;
     Mesh* GetPrimitive(PrimitiveType type) const { return m_Primitives[static_cast<size_t>(type)]; }
+    std::vector<std::string> MeshNames() const;
 
-    // Draws one frame of `scene` as seen by `camera` and presents it.
-    void Render(const Scene& scene, const CameraData& camera, float time);
+    // ---- Render targets ----
+    std::unique_ptr<RenderTarget> CreateRenderTarget(VkExtent2D extent);
+    // Waits for the GPU; call outside of BeginFrame/EndFrame.
+    void ResizeRenderTarget(RenderTarget& target, VkExtent2D extent);
+    void DestroyRenderTarget(RenderTarget& target);
 
-    // Current output size in pixels (use it for the camera aspect ratio).
-    VkExtent2D OutputExtent() const;
-    float AspectRatio() const;
+    // ---- Frame ----
+    // Returns false when the frame must be skipped (minimized window, swapchain recreated).
+    bool BeginFrame();
+    // Renders `scene` into `target`; afterwards the target is ready to be sampled.
+    void DrawScene(RenderTarget& target, const Scene& scene, const CameraData& camera,
+                   const SceneRenderOptions& options = {});
+    void BlitToScreen(const RenderTarget& target);
+    void BeginScreenPass(bool clear);
+    void EndScreenPass();
+    void EndFrame();
+    VkCommandBuffer CommandBuffer() const { return m_Frames[m_FrameIndex].commandBuffer; }
 
+    // Convenience for runtime apps: draws the scene full-screen and presents.
+    void RenderToScreen(const Scene& scene, const CameraData& camera);
+
+    VkExtent2D ScreenExtent() const;
+    float ScreenAspectRatio() const;
+    VkFormat ScreenFormat() const;
+    uint32_t ScreenImageCount() const;
+
+    void SetTime(float seconds) { m_Time = seconds; }
     void WaitIdle() const;
     VulkanContext& Context() { return *m_Context; }
 
@@ -52,35 +96,45 @@ private:
         VkCommandBuffer commandBuffer = VK_NULL_HANDLE;
         VkFence inFlight = VK_NULL_HANDLE;
         VkSemaphore imageAvailable = VK_NULL_HANDLE;
-        AllocatedBuffer frameUniforms;
+        AllocatedBuffer uniforms; // kMaxViewsPerFrame slots
         VkDescriptorSet descriptorSet = VK_NULL_HANDLE;
     };
 
     void CreateFrameResources();
     void CreateDescriptors();
     void CreatePipelines();
-    void CreateDepthBuffer();
     void RecreateSwapchain();
-    void RecordScene(VkCommandBuffer cmd, const Scene& scene, const FrameResources& frame);
+    void CreateTargetImages(RenderTarget& target, VkExtent2D extent);
+    void DrawMesh(VkCommandBuffer cmd, const Mesh& mesh, const glm::mat4& model, const glm::vec4& color,
+                  float checker = 0.0f);
+    void DrawColliderWire(VkCommandBuffer cmd, const Entity& entity, const glm::vec4& color);
 
     Window& m_Window;
     RendererSettings m_Settings;
     std::unique_ptr<VulkanContext> m_Context;
     std::unique_ptr<Swapchain> m_Swapchain;
-    AllocatedImage m_Depth;
-    static constexpr VkFormat kDepthFormat = VK_FORMAT_D32_SFLOAT;
 
     std::array<FrameResources, kFramesInFlight> m_Frames{};
     uint32_t m_FrameIndex = 0;
+    uint32_t m_ImageIndex = 0;
+    uint32_t m_ViewIndex = 0;
+    bool m_FrameActive = false;
+    bool m_ScreenReady = false;   // swapchain image is in COLOR_ATTACHMENT layout
     bool m_SwapchainDirty = false;
+    float m_Time = 0.0f;
+    VkDeviceSize m_UniformStride = 0;
+    std::unique_ptr<RenderTarget> m_ScreenTarget;
 
     VkDescriptorPool m_DescriptorPool = VK_NULL_HANDLE;
     VkDescriptorSetLayout m_FrameSetLayout = VK_NULL_HANDLE;
     VkPipelineLayout m_PipelineLayout = VK_NULL_HANDLE;
     VkPipeline m_LitPipeline = VK_NULL_HANDLE;
     VkPipeline m_SkyPipeline = VK_NULL_HANDLE;
+    VkPipeline m_GridPipeline = VK_NULL_HANDLE;
+    VkPipeline m_WirePipeline = VK_NULL_HANDLE; // null if fillModeNonSolid is unsupported
 
     std::vector<std::unique_ptr<Mesh>> m_Meshes;
+    std::unordered_map<std::string, Mesh*> m_MeshByName;
     std::array<Mesh*, static_cast<size_t>(PrimitiveType::Count)> m_Primitives{};
 };
 

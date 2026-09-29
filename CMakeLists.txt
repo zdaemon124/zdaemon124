@@ -17,7 +17,8 @@ include(cmake/Shaders.cmake)
 
 add_subdirectory(Engine)
 add_subdirectory(Sandbox)
+add_subdirectory(Editor)
 
 if(MSVC)
-    set_property(DIRECTORY ${CMAKE_SOURCE_DIR} PROPERTY VS_STARTUP_PROJECT Sandbox)
+    set_property(DIRECTORY ${CMAKE_SOURCE_DIR} PROPERTY VS_STARTUP_PROJECT Editor)
 endif()

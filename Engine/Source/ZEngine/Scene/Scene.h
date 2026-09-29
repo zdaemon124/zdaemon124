@@ -1,51 +1,64 @@
 #pragma once
 
+#include "ZEngine/Scene/Components.h"
+#include "ZEngine/Scene/Primitives.h"
 #include "ZEngine/Scene/Transform.h"
 
 #include <cstdint>
 #include <memory>
+#include <optional>
 #include <string>
 #include <vector>
 
 namespace ze {
 
-struct Mesh;
-
 using EntityID = uint32_t;
+inline constexpr EntityID kInvalidEntity = 0;
 
-struct MeshRenderer {
-    Mesh* mesh = nullptr;
-    glm::vec4 color{1.0f};      // linear RGBA
-    float checkerScale = 0.0f;  // > 0 draws a world-space checker pattern (ground helper)
-};
-
+// Unity's GameObject: a name, a transform and optional components.
 struct Entity {
-    EntityID id = 0;
+    EntityID id = kInvalidEntity;
     std::string name;
     bool active = true;
     Transform transform;
-    MeshRenderer meshRenderer;
+
+    std::optional<MeshRendererComponent> meshRenderer;
+    std::optional<ColliderComponent> collider;
+    std::optional<RigidbodyComponent> rigidbody;
+    std::optional<LightComponent> light;
+    std::optional<CameraComponent> camera;
 };
 
-struct DirectionalLight {
-    glm::vec3 direction = glm::normalize(glm::vec3(0.4f, -1.0f, 0.6f)); // direction the light travels
-    glm::vec3 color{1.0f, 0.96f, 0.9f};
-    float intensity = 1.0f;
-    glm::vec3 skyAmbient{0.22f, 0.27f, 0.36f};
-    glm::vec3 groundAmbient{0.10f, 0.09f, 0.08f};
+struct SceneSettings {
+    glm::vec3 skyAmbient{0.45f, 0.52f, 0.62f};    // sRGB
+    glm::vec3 groundAmbient{0.32f, 0.3f, 0.28f};  // sRGB
+    float ambientIntensity = 1.0f;
+    glm::vec3 gravity{0.0f, -9.81f, 0.0f};
 };
 
-// Minimal scene container. Will be replaced by an ECS when components are added.
 class Scene {
 public:
-    Entity& CreateEntity(const std::string& name);
+    Entity& CreateEntity(const std::string& name, EntityID id = kInvalidEntity);
+    // GameObject.CreatePrimitive: mesh renderer + matching collider.
+    Entity& CreatePrimitive(PrimitiveType type, const std::string& name = {});
+    Entity& Duplicate(EntityID id);
     void DestroyEntity(EntityID id);
-    Entity* Find(const std::string& name);
-    Entity* Get(EntityID id);
+    void Clear();
 
+    Entity* Get(EntityID id);
+    const Entity* Get(EntityID id) const;
+    Entity* Find(const std::string& name);
+    int IndexOf(EntityID id) const;
+    void Move(EntityID id, int newIndex);
+
+    // First active entity with a light / camera component.
+    const Entity* MainLight() const;
+    const Entity* MainCamera() const;
+
+    std::vector<std::unique_ptr<Entity>>& Entities() { return m_Entities; }
     const std::vector<std::unique_ptr<Entity>>& Entities() const { return m_Entities; }
 
-    DirectionalLight light;
+    SceneSettings settings;
 
 private:
     std::vector<std::unique_ptr<Entity>> m_Entities;

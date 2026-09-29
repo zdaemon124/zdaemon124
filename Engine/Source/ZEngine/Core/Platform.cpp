@@ -2,8 +2,11 @@
 
 #include <fstream>
 
+#include <cstdlib>
+
 #ifdef _WIN32
 #include <windows.h>
+#include <shellapi.h>
 #endif
 
 namespace ze::Platform {
@@ -30,6 +33,17 @@ std::vector<char> ReadBinaryFile(const std::filesystem::path& path)
     file.seekg(0);
     file.read(data.data(), static_cast<std::streamsize>(data.size()));
     return data;
+}
+
+void OpenInFileBrowser(const std::filesystem::path& path)
+{
+    std::filesystem::path folder = std::filesystem::is_directory(path) ? path : path.parent_path();
+#ifdef _WIN32
+    ShellExecuteW(nullptr, L"open", folder.wstring().c_str(), nullptr, nullptr, SW_SHOWNORMAL);
+#else
+    std::string command = "xdg-open \"" + folder.string() + "\" >/dev/null 2>&1 &";
+    [[maybe_unused]] int result = std::system(command.c_str());
+#endif
 }
 
 } // namespace ze::Platform

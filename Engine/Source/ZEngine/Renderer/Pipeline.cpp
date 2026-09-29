@@ -64,6 +64,11 @@ VkPipeline CreateGraphicsPipeline(VkDevice device, const GraphicsPipelineDesc& d
     // Unity convention: front faces are clockwise as seen on screen.
     raster.frontFace = VK_FRONT_FACE_CLOCKWISE;
     raster.lineWidth = 1.0f;
+    if (desc.depthBiasConstant != 0.0f || desc.depthBiasSlope != 0.0f) {
+        raster.depthBiasEnable = VK_TRUE;
+        raster.depthBiasConstantFactor = desc.depthBiasConstant;
+        raster.depthBiasSlopeFactor = desc.depthBiasSlope;
+    }
 
     VkPipelineMultisampleStateCreateInfo multisample{VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO};
     multisample.rasterizationSamples = VK_SAMPLE_COUNT_1_BIT;

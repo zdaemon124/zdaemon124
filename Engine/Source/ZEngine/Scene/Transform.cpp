@@ -28,7 +28,7 @@ glm::vec3 Transform::EulerAngles() const
     // Decompose R = Ry * Rx * Rz.
     float y = 0.0f, x = 0.0f, z = 0.0f;
     glm::extractEulerAngleYXZ(glm::mat4_cast(rotation), y, x, z);
-    return glm::degrees(glm::vec3(x, y, z));
+    return glm::degrees(glm::vec3(x, y, z)) + glm::vec3(0.0f); // + 0 turns -0 into 0 for display
 }
 
 void Transform::Rotate(const glm::vec3& degrees)
