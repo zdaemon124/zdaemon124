@@ -1,0 +1,43 @@
+#pragma once
+
+#include "ZEngine/Scene/Transform.h"
+
+namespace ze {
+
+// What the renderer needs to draw a view.
+struct CameraData {
+    glm::mat4 view{1.0f};
+    glm::mat4 projection{1.0f};
+    glm::vec3 position{0.0f};
+};
+
+struct PerspectiveLens {
+    float fieldOfView = 60.0f; // vertical, degrees
+    float nearClip = 0.1f;
+    float farClip = 1000.0f;
+
+    glm::mat4 Projection(float aspect) const;
+};
+
+// Scene-view camera: hold RMB to look around and fly with WASD/QE (Shift = faster),
+// MMB drag to pan, mouse wheel to move forward/backward.
+class EditorCamera {
+public:
+    EditorCamera();
+
+    void Update(float deltaTime);
+    void LookAt(const glm::vec3& target);
+    CameraData Data(float aspect) const;
+
+    Transform transform;
+    PerspectiveLens lens;
+    float moveSpeed = 6.0f;
+    float lookSensitivity = 0.15f; // degrees per pixel
+
+private:
+    float m_Yaw = 0.0f;   // around +Y
+    float m_Pitch = 0.0f; // around +X
+    bool m_Looking = false;
+};
+
+} // namespace ze
