@@ -31,6 +31,7 @@ set(GLFW_BUILD_TESTS    OFF CACHE BOOL "" FORCE)
 set(GLFW_BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
 set(GLFW_INSTALL        OFF CACHE BOOL "" FORCE)
 set(GLFW_BUILD_WAYLAND  OFF CACHE BOOL "" FORCE)
+set(USE_MSVC_RUNTIME_LIBRARY_DLL OFF CACHE BOOL "" FORCE)
 FetchContent_Declare(glfw
     GIT_REPOSITORY https://github.com/glfw/glfw.git
     GIT_TAG        3.4
@@ -42,9 +43,6 @@ FetchContent_MakeAvailable(vulkan_headers volk vma glm glfw)
 add_library(volk STATIC ${volk_SOURCE_DIR}/volk.c)
 target_include_directories(volk PUBLIC ${volk_SOURCE_DIR} ${vulkan_headers_SOURCE_DIR}/include)
 target_compile_definitions(volk PUBLIC VK_NO_PROTOTYPES)
-if(WIN32)
-    target_compile_definitions(volk PUBLIC VK_USE_PLATFORM_WIN32_KHR)
-endif()
 
 add_library(vma INTERFACE)
 target_include_directories(vma SYSTEM INTERFACE ${vma_SOURCE_DIR}/include)

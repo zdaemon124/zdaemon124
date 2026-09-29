@@ -9,6 +9,9 @@ set_property(GLOBAL PROPERTY USE_FOLDERS ON)
 # All executables land in build/bin (build/bin/<Config> for Visual Studio).
 set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin)
 
+# Static MSVC runtime: the built .exe runs without installing the VC++ Redistributable.
+set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
+
 include(cmake/Dependencies.cmake)
 include(cmake/Shaders.cmake)
 
