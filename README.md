@@ -17,23 +17,23 @@
 ## Сборка на Windows 11
 
 1. Установите:
-   - [Visual Studio 2022](https://visualstudio.microsoft.com/) с нагрузкой **«Разработка классических приложений на C++»** (CMake входит в её состав);
+   - [Visual Studio 2022 или 2026](https://visualstudio.microsoft.com/) с нагрузкой **«Разработка классических приложений на C++»** (CMake входит в её состав);
    - [Vulkan SDK](https://vulkan.lunarg.com/sdk/home#windows) (нужен компилятор шейдеров `glslc` и слои валидации);
    - [Git](https://git-scm.com/download/win);
    - свежий драйвер NVIDIA.
-2. Склонируйте репозиторий и соберите проект (в «Developer PowerShell for VS 2022»):
+2. Склонируйте репозиторий и соберите проект (в «Developer PowerShell for VS»):
 
    ```powershell
    git clone https://github.com/zdaemon124/zdaemon124.git ZEngine
    cd ZEngine
-   cmake --preset vs2022
-   cmake --build --preset vs2022-debug
+   cmake --preset windows
+   cmake --build --preset windows-debug
    .\build\bin\Debug\Sandbox.exe
    ```
 
    При первой конфигурации CMake сам скачает зависимости (GLFW, volk, VMA, GLM, Vulkan-Headers).
 
-   Можно и без консоли: откройте `build\ZEngine.sln` в Visual Studio и нажмите F5 (стартовый проект — Sandbox).
+   Можно и без консоли: откройте файл `build\ZEngine.sln` (или `.slnx` для VS 2026) в Visual Studio и нажмите F5 (стартовый проект — Sandbox).
 
 Управление в Sandbox: ПКМ + WASD/QE — полёт, СКМ — панорама, колесо — зум, Space — пауза анимации, Esc — выход.
 

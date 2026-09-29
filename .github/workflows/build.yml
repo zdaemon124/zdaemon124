@@ -39,11 +39,16 @@ jobs:
         shell: pwsh
         run: echo "VULKAN_SDK=C:\VulkanSDK\${{ env.VULKAN_SDK_VERSION }}" >> $env:GITHUB_ENV
 
+      - name: Check Vulkan SDK
+        shell: pwsh
+        run: |
+          if (-not (Test-Path "$env:VULKAN_SDK\Bin\glslc.exe")) { throw "glslc.exe not found in $env:VULKAN_SDK" }
+
       - name: Configure
-        run: cmake --preset vs2022
+        run: cmake --preset windows
 
       - name: Build
-        run: cmake --build --preset vs2022-release -- /m
+        run: cmake --build --preset windows-release --parallel
 
       - name: Package
         shell: pwsh
